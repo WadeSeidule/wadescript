@@ -145,7 +145,6 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     fn declare_builtin_functions(&mut self) {
-        let i32_type = self.context.i32_type();
         let i64_type = self.context.i64_type();
         let f64_type = self.context.f64_type();
         let str_type = self.context.ptr_type(AddressSpace::default());
@@ -1620,7 +1619,6 @@ impl<'ctx> CodeGen<'ctx> {
 
             Expression::FString { parts, expressions } => {
                 // F-string implementation: concatenate parts and formatted expressions
-                let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let i64_type = self.context.i64_type();
 
                 // Start with empty result string

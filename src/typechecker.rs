@@ -134,7 +134,7 @@ impl TypeChecker {
 
             Statement::ClassDef {
                 name,
-                base_class: _,
+                _base_class: _,
                 fields,
                 methods,
             } => {

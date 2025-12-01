@@ -250,7 +250,7 @@ impl Parser {
 
         Statement::ClassDef {
             name,
-            base_class,
+            _base_class: base_class,
             fields,
             methods,
         }
@@ -682,7 +682,7 @@ impl Parser {
                 }
 
                 // Parse the expression
-                let mut lexer = crate::lexer::Lexer::new(expr_str);
+                let lexer = crate::lexer::Lexer::new(expr_str);
                 let mut temp_parser = Parser::new(lexer);
                 let expr = temp_parser.expression();
                 expressions.push(expr);

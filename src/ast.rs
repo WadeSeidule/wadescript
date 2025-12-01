@@ -59,7 +59,7 @@ pub enum Statement {
     },
     ClassDef {
         name: String,
-        base_class: Option<String>,
+        _base_class: Option<String>,  // Reserved for future inheritance support
         fields: Vec<Field>,
         methods: Vec<Statement>,
     },
@@ -101,6 +101,7 @@ pub struct Field {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]  // Some variants reserved for future features
 pub enum Expression {
     IntLiteral(i64),
     FloatLiteral(f64),

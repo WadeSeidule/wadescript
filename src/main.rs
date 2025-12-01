@@ -1,0 +1,153 @@
+mod ast;
+mod codegen;
+mod lexer;
+mod parser;
+mod typechecker;
+
+use ast::{Program, Statement};
+use codegen::CodeGen;
+use inkwell::context::Context;
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::OptimizationLevel;
+use lexer::Lexer;
+use parser::Parser;
+use std::collections::HashSet;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use typechecker::TypeChecker;
+
+fn load_program_with_imports(file_path: &str, imported: &mut HashSet<PathBuf>) -> Result<Program, String> {
+    // Add .ws extension if not present
+    let file_path_with_ext = if file_path.ends_with(".ws") {
+        file_path.to_string()
+    } else {
+        format!("{}.ws", file_path)
+    };
+
+    let abs_path = fs::canonicalize(&file_path_with_ext).map_err(|e| format!("Cannot resolve path '{}': {}", file_path_with_ext, e))?;
+
+    // Check for circular imports
+    if imported.contains(&abs_path) {
+        return Err(format!("Circular import detected: {}", file_path_with_ext));
+    }
+    imported.insert(abs_path.clone());
+
+    // Read and parse the file
+    let source_code = fs::read_to_string(&abs_path).map_err(|e| format!("Error reading file '{}': {}", file_path_with_ext, e))?;
+    let lexer = Lexer::new(source_code);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse();
+
+    let mut all_statements = Vec::new();
+
+    // Process import statements
+    for statement in &program.statements {
+        if let Statement::Import { path } = statement {
+            // Resolve import path relative to the current file
+            let current_dir = abs_path.parent().unwrap();
+
+            // Add .ws extension if not present
+            let import_path_with_ext = if path.ends_with(".ws") {
+                path.clone()
+            } else {
+                format!("{}.ws", path)
+            };
+
+            let import_path = current_dir.join(&import_path_with_ext);
+            let import_path_str = import_path.to_str().unwrap();
+
+            // Recursively load the imported file
+            let imported_program = load_program_with_imports(import_path_str, imported)?;
+            all_statements.extend(imported_program.statements);
+        } else {
+            // Add non-import statements
+            all_statements.push(statement.clone());
+        }
+    }
+
+    Ok(Program {
+        statements: all_statements,
+    })
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: wadescript <input_file.ws> [--emit-llvm]");
+        std::process::exit(1);
+    }
+
+    let input_file = &args[1];
+    let emit_llvm = args.len() > 2 && args[2] == "--emit-llvm";
+
+    let mut imported = HashSet::new();
+    let program = load_program_with_imports(input_file, &mut imported).unwrap_or_else(|err| {
+        eprintln!("Error loading program: {}", err);
+        std::process::exit(1);
+    });
+
+    let mut type_checker = TypeChecker::new();
+    if let Err(e) = type_checker.check_program(&program) {
+        eprintln!("Type error: {}", e);
+        std::process::exit(1);
+    }
+
+    let context = Context::create();
+    let mut codegen = CodeGen::new(&context, "wadescript_module");
+
+    if let Err(e) = codegen.compile_program(&program) {
+        eprintln!("Compilation error: {}", e);
+        std::process::exit(1);
+    }
+
+    let module = codegen.get_module();
+
+    if emit_llvm {
+        println!("{}", module.print_to_string().to_string());
+        return;
+    }
+
+    Target::initialize_native(&InitializationConfig::default()).unwrap();
+
+    let target_triple = TargetMachine::get_default_triple();
+    let target = Target::from_triple(&target_triple).unwrap();
+    let target_machine = target
+        .create_target_machine(
+            &target_triple,
+            "generic",
+            "",
+            OptimizationLevel::Default,
+            RelocMode::Default,
+            CodeModel::Default,
+        )
+        .unwrap();
+
+    let output_base = Path::new(input_file).file_stem().unwrap().to_str().unwrap();
+    let obj_file = format!("{}.o", output_base);
+    let exe_file = output_base;
+
+    target_machine
+        .write_to_file(module, FileType::Object, Path::new(&obj_file))
+        .unwrap();
+
+    // Get the runtime library path
+    let runtime_lib = "runtime/list.o";
+
+    let output = Command::new("clang")
+        .args(&[&obj_file, runtime_lib, "-o", exe_file])
+        .output()
+        .expect("Failed to link object file with clang");
+
+    if !output.status.success() {
+        eprintln!("Linking failed:");
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        std::process::exit(1);
+    }
+
+    fs::remove_file(&obj_file).ok();
+
+    println!("Compiled successfully to '{}'", exe_file);
+}

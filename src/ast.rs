@@ -32,6 +32,16 @@ impl fmt::Display for Type {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
+    pub modules: std::collections::HashMap<String, Vec<String>>, // module_name -> function_names
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Program {
+            statements: Vec::new(),
+            modules: std::collections::HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

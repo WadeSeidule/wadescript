@@ -65,7 +65,9 @@ impl Parser {
             self.skip_newlines();
         }
 
-        Program { statements }
+        let mut program = Program::new();
+        program.statements = statements;
+        program
     }
 
     fn statement(&mut self) -> Statement {

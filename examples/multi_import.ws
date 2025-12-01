@@ -9,8 +9,8 @@ def main() -> int {
 
     # Use math functions
     print_str("Math functions:")
-    print_int(add(5, 10))
-    print_int(square(7))
+    print_int(math_lib.add(5, 10))
+    print_int(math_lib.square(7))
     print_str("")
 
     # Use list functions
@@ -18,13 +18,13 @@ def main() -> int {
     numbers: list[int] = [1, 2, 3, 4, 5]
 
     print_str("Sum:")
-    print_int(sum_list(numbers))
+    print_int(list_utils.sum_list(numbers))
 
     print_str("Max:")
-    print_int(max_in_list(numbers))
+    print_int(list_utils.max_in_list(numbers))
 
     print_str("Count evens:")
-    print_int(count_evens(numbers))
+    print_int(list_utils.count_evens(numbers))
 
     print_str("")
     print_str("=== Demo Complete ===")

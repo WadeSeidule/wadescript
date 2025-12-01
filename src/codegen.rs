@@ -991,6 +991,38 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::Call { callee, args } => {
+                // Check if this is a module.function() call
+                if let Expression::MemberAccess { object, member } = &**callee {
+                    if let Expression::Variable(_module_name) = &**object {
+                        // Module.function() call - extract function name and call it
+                        // Module name already validated by type checker, just use function name
+                        let function = if let Some(&func) = self.functions.get(member) {
+                            func
+                        } else if let Some(func) = self.module.get_function(member) {
+                            func
+                        } else {
+                            return Err(format!("Undefined function '{}'", member));
+                        };
+
+                        let mut arg_values: Vec<BasicMetadataValueEnum> = Vec::new();
+                        for arg in args {
+                            let arg_val = self.compile_expression(arg)?;
+                            arg_values.push(arg_val.into());
+                        }
+
+                        let call_site_value = self
+                            .builder
+                            .build_call(function, &arg_values, "calltmp")
+                            .unwrap();
+
+                        if let Some(return_value) = call_site_value.try_as_basic_value().left() {
+                            return Ok(return_value);
+                        } else {
+                            return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
+                        }
+                    }
+                }
+
                 if let Expression::Variable(func_name) = &**callee {
                     // Handle range() as a special built-in
                     if func_name == "range" {
@@ -1174,6 +1206,50 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::MethodCall { object, method, args } => {
+                // Check if this is a module.function() call
+                // Only treat as module call if object is a Variable AND the method exists as a function
+                if let Expression::Variable(_module_name) = &**object {
+                    // Check if this method exists as a regular function
+                    if let Some(&func) = self.functions.get(method) {
+                        // This is a module function call
+                        let mut arg_values: Vec<BasicMetadataValueEnum> = Vec::new();
+                        for arg in args {
+                            let arg_val = self.compile_expression(arg)?;
+                            arg_values.push(arg_val.into());
+                        }
+
+                        let call_site_value = self
+                            .builder
+                            .build_call(func, &arg_values, "calltmp")
+                            .unwrap();
+
+                        if let Some(return_value) = call_site_value.try_as_basic_value().left() {
+                            return Ok(return_value);
+                        } else {
+                            return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
+                        }
+                    } else if let Some(func) = self.module.get_function(method) {
+                        // This is a module function call from the current module
+                        let mut arg_values: Vec<BasicMetadataValueEnum> = Vec::new();
+                        for arg in args {
+                            let arg_val = self.compile_expression(arg)?;
+                            arg_values.push(arg_val.into());
+                        }
+
+                        let call_site_value = self
+                            .builder
+                            .build_call(func, &arg_values, "calltmp")
+                            .unwrap();
+
+                        if let Some(return_value) = call_site_value.try_as_basic_value().left() {
+                            return Ok(return_value);
+                        } else {
+                            return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
+                        }
+                    }
+                    // If neither, fall through to regular method call handling
+                }
+
                 let obj_val = self.compile_expression(object)?;
 
                 match method.as_str() {

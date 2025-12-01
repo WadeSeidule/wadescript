@@ -40,7 +40,7 @@ fn load_program_with_imports(file_path: &str, imported: &mut HashSet<PathBuf>) -
     let mut parser = Parser::new(lexer);
     let program = parser.parse();
 
-    let mut all_statements = Vec::new();
+    let mut result_program = Program::new();
 
     // Process import statements
     for statement in &program.statements {
@@ -58,18 +58,38 @@ fn load_program_with_imports(file_path: &str, imported: &mut HashSet<PathBuf>) -
             let import_path = current_dir.join(&import_path_with_ext);
             let import_path_str = import_path.to_str().unwrap();
 
+            // Extract module name from path (filename without extension)
+            let module_name = Path::new(path).file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(path)
+                .to_string();
+
             // Recursively load the imported file
             let imported_program = load_program_with_imports(import_path_str, imported)?;
-            all_statements.extend(imported_program.statements);
+
+            // Extract function names from imported program
+            let mut function_names = Vec::new();
+            for stmt in &imported_program.statements {
+                if let Statement::FunctionDef { name, .. } = stmt {
+                    function_names.push(name.clone());
+                }
+            }
+
+            // Register this module
+            result_program.modules.insert(module_name, function_names);
+
+            // Merge statements and modules
+            result_program.statements.extend(imported_program.statements);
+            for (mod_name, func_names) in imported_program.modules {
+                result_program.modules.insert(mod_name, func_names);
+            }
         } else {
-            // Add non-import statements
-            all_statements.push(statement.clone());
+            // Add non-import statements from current file
+            result_program.statements.push(statement.clone());
         }
     }
 
-    Ok(Program {
-        statements: all_statements,
-    })
+    Ok(result_program)
 }
 
 fn main() {

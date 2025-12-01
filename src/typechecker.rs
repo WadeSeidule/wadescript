@@ -6,6 +6,7 @@ pub struct TypeChecker {
     functions: HashMap<String, (Vec<Type>, Type)>,
     classes: HashMap<String, HashMap<String, Type>>,
     current_function_return_type: Option<Type>,
+    modules: HashMap<String, Vec<String>>, // module_name -> function_names
 }
 
 impl TypeChecker {
@@ -26,6 +27,7 @@ impl TypeChecker {
             functions,
             classes: HashMap::new(),
             current_function_return_type: None,
+            modules: HashMap::new(),
         }
     }
 
@@ -53,6 +55,9 @@ impl TypeChecker {
     }
 
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
+        // Store module information
+        self.modules = program.modules.clone();
+
         for statement in &program.statements {
             self.check_statement(statement)?;
         }
@@ -396,6 +401,54 @@ impl TypeChecker {
             }
 
             Expression::Call { callee, args } => {
+                // Check if this is a module.function() call
+                if let Expression::MemberAccess { object, member } = &**callee {
+                    if let Expression::Variable(module_name) = &**object {
+                        // Check if this is a known module
+                        if let Some(module_functions) = self.modules.get(module_name) {
+                            // Check if the function exists in this module
+                            if !module_functions.contains(member) {
+                                return Err(format!(
+                                    "Module '{}' has no function '{}'",
+                                    module_name, member
+                                ));
+                            }
+
+                            // Look up the function signature
+                            if let Some((param_types, return_type)) = self.functions.get(member).cloned() {
+                                if args.len() != param_types.len() {
+                                    return Err(format!(
+                                        "Function '{}.{}' expects {} arguments, got {}",
+                                        module_name,
+                                        member,
+                                        param_types.len(),
+                                        args.len()
+                                    ));
+                                }
+
+                                for (i, arg) in args.iter().enumerate() {
+                                    let arg_type = self.check_expression(arg)?;
+                                    if !self.types_compatible(&param_types[i], &arg_type) {
+                                        return Err(format!(
+                                            "Argument {} of function '{}.{}': expected {}, got {}",
+                                            i + 1,
+                                            module_name,
+                                            member,
+                                            param_types[i],
+                                            arg_type
+                                        ));
+                                    }
+                                }
+
+                                return Ok(return_type);
+                            } else {
+                                return Err(format!("Undefined function '{}'", member));
+                            }
+                        }
+                    }
+                }
+
+                // Regular function call
                 if let Expression::Variable(func_name) = &**callee {
                     if let Some((param_types, return_type)) = self.functions.get(func_name).cloned() {
                         if args.len() != param_types.len() {
@@ -430,6 +483,15 @@ impl TypeChecker {
             }
 
             Expression::MemberAccess { object, member } => {
+                // Check if this is a module.function reference
+                if let Expression::Variable(module_name) = &**object {
+                    if self.modules.contains_key(module_name) {
+                        // This is a module reference - it will be validated in the Call/MethodCall context
+                        // For now, return void as a placeholder since this should only appear in calls
+                        return Ok(Type::Void);
+                    }
+                }
+
                 let obj_type = self.check_expression(object)?;
 
                 // Handle .length property for arrays and lists
@@ -559,6 +621,50 @@ impl TypeChecker {
             }
 
             Expression::MethodCall { object, method, args } => {
+                // Check if this is a module.function() call
+                if let Expression::Variable(module_name) = &**object {
+                    if let Some(module_functions) = self.modules.get(module_name) {
+                        // This is a module function call
+                        if !module_functions.contains(method) {
+                            return Err(format!(
+                                "Module '{}' has no function '{}'",
+                                module_name, method
+                            ));
+                        }
+
+                        // Look up the function signature
+                        if let Some((param_types, return_type)) = self.functions.get(method).cloned() {
+                            if args.len() != param_types.len() {
+                                return Err(format!(
+                                    "Function '{}.{}' expects {} arguments, got {}",
+                                    module_name,
+                                    method,
+                                    param_types.len(),
+                                    args.len()
+                                ));
+                            }
+
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_type = self.check_expression(arg)?;
+                                if !self.types_compatible(&param_types[i], &arg_type) {
+                                    return Err(format!(
+                                        "Argument {} of function '{}.{}': expected {}, got {}",
+                                        i + 1,
+                                        module_name,
+                                        method,
+                                        param_types[i],
+                                        arg_type
+                                    ));
+                                }
+                            }
+
+                            return Ok(return_type);
+                        } else {
+                            return Err(format!("Undefined function '{}'", method));
+                        }
+                    }
+                }
+
                 let obj_type = self.check_expression(object)?;
 
                 match obj_type {

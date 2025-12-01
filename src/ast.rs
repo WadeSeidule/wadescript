@@ -60,6 +60,7 @@ pub enum Statement {
     ClassDef {
         name: String,
         base_class: Option<String>,
+        fields: Vec<Field>,
         methods: Vec<Statement>,
     },
     If {
@@ -91,6 +92,12 @@ pub enum Statement {
 pub struct Parameter {
     pub name: String,
     pub param_type: Type,
+}
+
+#[derive(Debug, Clone)]
+pub struct Field {
+    pub name: String,
+    pub field_type: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +151,10 @@ pub enum Expression {
         object: Box<Expression>,
         method: String,
         args: Vec<Expression>,
+    },
+    FString {
+        parts: Vec<String>,       // String parts between {}
+        expressions: Vec<Expression>, // Expressions to interpolate
     },
 }
 

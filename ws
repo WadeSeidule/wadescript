@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# WadeScript build and run utility
+# Usage:
+#   ws build <file.ws>           - Compile WadeScript file to executable
+#   ws run <file.ws>             - Compile and run WadeScript file
+#   ws build <file.ws> -o <name> - Compile with custom output name
+#   ws run <file.ws> [args...]   - Compile and run with arguments
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WADESCRIPT_BIN="$SCRIPT_DIR/target/debug/wadescript"
+
+# Check if wadescript compiler exists
+if [ ! -f "$WADESCRIPT_BIN" ]; then
+    echo -e "${RED}Error: wadescript compiler not found at $WADESCRIPT_BIN${NC}"
+    echo "Please run 'cargo build' first"
+    exit 1
+fi
+
+# Show usage
+usage() {
+    echo "WadeScript build and run utility"
+    echo ""
+    echo "Usage:"
+    echo "  ws build <file.ws>              Compile WadeScript file to executable"
+    echo "  ws run <file.ws> [args...]      Compile and run WadeScript file"
+    echo "  ws build <file.ws> -o <name>    Compile with custom output name"
+    echo ""
+    echo "Examples:"
+    echo "  ws build examples/hello.ws"
+    echo "  ws run examples/hello.ws"
+    echo "  ws build main.ws -o myapp"
+    echo "  ws run examples/factorial.ws 10"
+    exit 1
+}
+
+# Check for command
+if [ $# -lt 2 ]; then
+    usage
+fi
+
+COMMAND="$1"
+SOURCE_FILE="$2"
+
+# Check if source file exists
+if [ ! -f "$SOURCE_FILE" ]; then
+    echo -e "${RED}Error: Source file '$SOURCE_FILE' not found${NC}"
+    exit 1
+fi
+
+# Get the base name without extension
+BASENAME=$(basename "$SOURCE_FILE" .ws)
+OUTPUT_NAME="$BASENAME"
+
+case "$COMMAND" in
+    build)
+        # Check for custom output name
+        if [ "$3" = "-o" ] && [ -n "$4" ]; then
+            OUTPUT_NAME="$4"
+        fi
+
+        echo -e "${BLUE}Compiling $SOURCE_FILE...${NC}"
+
+        # Compile
+        if "$WADESCRIPT_BIN" "$SOURCE_FILE"; then
+            # Move to custom name if needed
+            if [ "$OUTPUT_NAME" != "$BASENAME" ]; then
+                mv "$BASENAME" "$OUTPUT_NAME"
+            fi
+            echo -e "${GREEN}✓ Compiled successfully to '$OUTPUT_NAME'${NC}"
+        else
+            echo -e "${RED}✗ Compilation failed${NC}"
+            exit 1
+        fi
+        ;;
+
+    run)
+        # Get any additional arguments for the program
+        shift 2
+        PROGRAM_ARGS="$@"
+
+        echo -e "${BLUE}Compiling $SOURCE_FILE...${NC}"
+
+        # Compile and capture output (don't use set -e here)
+        set +e
+        COMPILE_OUTPUT=$("$WADESCRIPT_BIN" "$SOURCE_FILE" 2>&1)
+        COMPILE_EXIT=$?
+        set -e
+
+        if [ $COMPILE_EXIT -eq 0 ]; then
+            echo -e "${GREEN}✓ Compiled successfully${NC}"
+            echo -e "${BLUE}Running ./$OUTPUT_NAME${NC}"
+            echo "---"
+
+            # Run the compiled program
+            if [ -n "$PROGRAM_ARGS" ]; then
+                "./$OUTPUT_NAME" $PROGRAM_ARGS
+            else
+                "./$OUTPUT_NAME"
+            fi
+
+            EXIT_CODE=$?
+            echo "---"
+            echo -e "${YELLOW}Program exited with code $EXIT_CODE${NC}"
+
+            # Clean up the executable
+            rm -f "./$OUTPUT_NAME"
+        else
+            echo -e "${RED}✗ Compilation failed${NC}"
+            echo "$COMPILE_OUTPUT"
+            exit 1
+        fi
+        ;;
+
+    *)
+        echo -e "${RED}Error: Unknown command '$COMMAND'${NC}"
+        echo ""
+        usage
+        ;;
+esac

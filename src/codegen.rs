@@ -2,7 +2,7 @@ use crate::ast::*;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::{AddressSpace, IntPredicate, FloatPredicate};
 use std::collections::HashMap;
@@ -11,9 +11,12 @@ pub struct CodeGen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
-    variables: HashMap<String, (PointerValue<'ctx>, BasicTypeEnum<'ctx>)>,
+    variables: HashMap<String, (PointerValue<'ctx>, BasicTypeEnum<'ctx>, Type)>, // Added AST Type
     functions: HashMap<String, FunctionValue<'ctx>>,
     current_function: Option<FunctionValue<'ctx>>,
+    class_types: HashMap<String, StructType<'ctx>>,
+    class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
+    current_class: Option<String>, // Track current class being compiled
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -28,6 +31,9 @@ impl<'ctx> CodeGen<'ctx> {
             variables: HashMap::new(),
             functions: HashMap::new(),
             current_function: None,
+            class_types: HashMap::new(),
+            class_fields: HashMap::new(),
+            current_class: None,
         }
     }
 
@@ -92,19 +98,44 @@ impl<'ctx> CodeGen<'ctx> {
 
         // malloc(size) -> ptr
         let malloc_type = ptr_type.fn_type(&[i64_type.into()], false);
-        self.module.add_function("malloc", malloc_type, None);
+        let malloc_fn = self.module.add_function("malloc", malloc_type, None);
+        self.functions.insert("malloc".to_string(), malloc_fn);
 
         // free(ptr) -> void
         let free_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
-        self.module.add_function("free", free_type, None);
+        let free_fn = self.module.add_function("free", free_type, None);
+        self.functions.insert("free".to_string(), free_fn);
 
         // realloc(ptr, size) -> ptr
         let realloc_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
-        self.module.add_function("realloc", realloc_type, None);
+        let realloc_fn = self.module.add_function("realloc", realloc_type, None);
+        self.functions.insert("realloc".to_string(), realloc_fn);
 
         // memcpy(dest, src, size) -> ptr
         let memcpy_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), i64_type.into()], false);
-        self.module.add_function("memcpy", memcpy_type, None);
+        let memcpy_fn = self.module.add_function("memcpy", memcpy_type, None);
+        self.functions.insert("memcpy".to_string(), memcpy_fn);
+
+        // strlen(str) -> i64
+        let strlen_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let strlen_fn = self.module.add_function("strlen", strlen_type, None);
+        self.functions.insert("strlen".to_string(), strlen_fn);
+
+        // strcpy(dest, src) -> ptr
+        let strcpy_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let strcpy_fn = self.module.add_function("strcpy", strcpy_type, None);
+        self.functions.insert("strcpy".to_string(), strcpy_fn);
+
+        // strcat(dest, src) -> ptr
+        let strcat_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let strcat_fn = self.module.add_function("strcat", strcat_type, None);
+        self.functions.insert("strcat".to_string(), strcat_fn);
+
+        // sprintf(dest, format, ...) -> i32 (variadic)
+        let i32_type = self.context.i32_type();
+        let sprintf_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], true);
+        let sprintf_fn = self.module.add_function("sprintf", sprintf_type, None);
+        self.functions.insert("sprintf".to_string(), sprintf_fn);
     }
 
     fn declare_builtin_functions(&mut self) {
@@ -291,7 +322,7 @@ impl<'ctx> CodeGen<'ctx> {
                     self.builder.build_store(alloca, init_value).unwrap();
                 }
 
-                self.variables.insert(name.clone(), (alloca, var_type));
+                self.variables.insert(name.clone(), (alloca, var_type, type_annotation.clone()));
                 Ok(())
             }
 
@@ -313,8 +344,15 @@ impl<'ctx> CodeGen<'ctx> {
                     ret_type.fn_type(&param_types, false)
                 };
 
+                // Use qualified name for methods
+                let function_key = if let Some(class_name) = &self.current_class {
+                    format!("{}::{}", class_name, name)
+                } else {
+                    name.clone()
+                };
+
                 let function = self.module.add_function(name, fn_type, None);
-                self.functions.insert(name.clone(), function);
+                self.functions.insert(function_key, function);
 
                 let entry = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry);
@@ -331,7 +369,7 @@ impl<'ctx> CodeGen<'ctx> {
                         .build_alloca(param_type, &param.name)
                         .unwrap();
                     self.builder.build_store(alloca, param_value).unwrap();
-                    self.variables.insert(param.name.clone(), (alloca, param_type));
+                    self.variables.insert(param.name.clone(), (alloca, param_type, param.param_type.clone()));
                 }
 
                 let mut has_return = false;
@@ -366,7 +404,34 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(())
             }
 
-            Statement::ClassDef { .. } => {
+            Statement::ClassDef { name, fields, methods, .. } => {
+                // Store field names in order
+                let field_names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
+                self.class_fields.insert(name.clone(), field_names);
+
+                // Create LLVM struct type for the class
+                let field_types: Vec<BasicTypeEnum> = fields
+                    .iter()
+                    .map(|f| self.get_llvm_type(&f.field_type))
+                    .collect();
+
+                let struct_type = self.context.struct_type(&field_types, false);
+                self.class_types.insert(name.clone(), struct_type);
+
+                // Set current class context for method compilation
+                self.current_class = Some(name.clone());
+
+                // Compile methods first (so init exists before constructor calls it)
+                for method in methods {
+                    self.compile_statement(method)?;
+                }
+
+                // Clear class context
+                self.current_class = None;
+
+                // Generate constructor function (after methods are compiled)
+                self.generate_constructor(name, fields)?;
+
                 Ok(())
             }
 
@@ -569,7 +634,8 @@ impl<'ctx> CodeGen<'ctx> {
                 // Declare loop variable
                 let item_alloca = self.builder.build_alloca(item_val.get_type(), variable).unwrap();
                 self.builder.build_store(item_alloca, item_val).unwrap();
-                self.variables.insert(variable.clone(), (item_alloca, item_val.get_type()));
+                // TODO: Infer proper element type from iterable
+                self.variables.insert(variable.clone(), (item_alloca, item_val.get_type(), Type::Int));
 
                 // Compile body statements
                 for stmt in body {
@@ -652,7 +718,7 @@ impl<'ctx> CodeGen<'ctx> {
                 .as_basic_value_enum()),
 
             Expression::Variable(name) => {
-                let (ptr, var_type) = self
+                let (ptr, var_type, _ast_type) = self
                     .variables
                     .get(name)
                     .ok_or(format!("Undefined variable '{}'", name))?;
@@ -665,7 +731,66 @@ impl<'ctx> CodeGen<'ctx> {
 
                 match op {
                     BinaryOp::Add => {
-                        if left_val.is_int_value() {
+                        // Check for string concatenation first
+                        if left_val.is_pointer_value() && right_val.is_pointer_value() {
+                            // String concatenation
+                            let left_str = left_val.into_pointer_value();
+                            let right_str = right_val.into_pointer_value();
+
+                            // Get string lengths
+                            let strlen_fn = *self.functions.get("strlen").unwrap();
+                            let left_len = self.builder
+                                .build_call(strlen_fn, &[left_str.into()], "left_len")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                                .into_int_value();
+
+                            let right_len = self.builder
+                                .build_call(strlen_fn, &[right_str.into()], "right_len")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                                .into_int_value();
+
+                            // Calculate total length (left_len + right_len + 1 for null terminator)
+                            let total_len = self.builder
+                                .build_int_add(left_len, right_len, "total_len")
+                                .unwrap();
+                            let total_len_with_null = self.builder
+                                .build_int_add(
+                                    total_len,
+                                    self.context.i64_type().const_int(1, false),
+                                    "total_len_with_null",
+                                )
+                                .unwrap();
+
+                            // Allocate memory for new string
+                            let malloc_fn = *self.functions.get("malloc").unwrap();
+                            let new_str = self.builder
+                                .build_call(malloc_fn, &[total_len_with_null.into()], "concat_str")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                                .into_pointer_value();
+
+                            // Copy first string
+                            let strcpy_fn = *self.functions.get("strcpy").unwrap();
+                            self.builder
+                                .build_call(strcpy_fn, &[new_str.into(), left_str.into()], "")
+                                .unwrap();
+
+                            // Concatenate second string
+                            let strcat_fn = *self.functions.get("strcat").unwrap();
+                            self.builder
+                                .build_call(strcat_fn, &[new_str.into(), right_str.into()], "")
+                                .unwrap();
+
+                            Ok(new_str.as_basic_value_enum())
+                        } else if left_val.is_int_value() {
                             Ok(self
                                 .builder
                                 .build_int_add(
@@ -1123,6 +1248,42 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::MemberAccess { object, member } => {
+                // Check if this is a field access on a class instance
+                if let Expression::Variable(var_name) = &**object {
+                    if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                        if let Type::Custom(class_name) = ast_type {
+                            // This is a class instance field access
+                            let struct_type = *self.class_types.get(class_name).unwrap();
+                            let field_names = self.class_fields.get(class_name).unwrap().clone();
+
+                            // Find field index
+                            if let Some(field_idx) = field_names.iter().position(|f| f == member) {
+                                // Get the object pointer
+                                let obj_val = self.compile_expression(object)?;
+                                let obj_ptr = obj_val.into_pointer_value();
+
+                                // Get field type from struct
+                                let field_type = struct_type.get_field_type_at_index(field_idx as u32).unwrap();
+
+                                // Get field pointer
+                                let field_ptr = self
+                                    .builder
+                                    .build_struct_gep(struct_type, obj_ptr, field_idx as u32, member)
+                                    .unwrap();
+
+                                // Load the field value
+                                let field_val = self
+                                    .builder
+                                    .build_load(field_type, field_ptr, member)
+                                    .unwrap();
+
+                                return Ok(field_val);
+                            }
+                        }
+                    }
+                }
+
+                // Handle .length property for lists
                 if member == "length" {
                     let obj_val = self.compile_expression(object)?;
                     let list_length = self.functions.get("list_length").unwrap();
@@ -1140,7 +1301,7 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::Assignment { target, value } => {
-                let (ptr, _) = *self
+                let (ptr, _, _) = *self
                     .variables
                     .get(target)
                     .ok_or(format!("Undefined variable '{}'", target))?;
@@ -1206,9 +1367,38 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::MethodCall { object, method, args } => {
-                // Check if this is a module.function() call
-                // Only treat as module call if object is a Variable AND the method exists as a function
-                if let Expression::Variable(_module_name) = &**object {
+                // Check if this is a class method call FIRST
+                if let Expression::Variable(var_name) = &**object {
+                    if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                        if let Type::Custom(class_name) = ast_type {
+                            // This is a class method call
+                            let method_full_name = format!("{}::{}", class_name, method);
+                            if let Some(&func) = self.functions.get(&method_full_name) {
+                                // Get the object value (pointer to struct)
+                                let obj_val = self.compile_expression(object)?;
+
+                                // Build arguments: self + user args
+                                let mut arg_values: Vec<BasicMetadataValueEnum> = vec![obj_val.into()];
+                                for arg in args {
+                                    let arg_val = self.compile_expression(arg)?;
+                                    arg_values.push(arg_val.into());
+                                }
+
+                                let call_site_value = self
+                                    .builder
+                                    .build_call(func, &arg_values, "method_call")
+                                    .unwrap();
+
+                                if let Some(return_value) = call_site_value.try_as_basic_value().left() {
+                                    return Ok(return_value);
+                                } else {
+                                    return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
+                                }
+                            }
+                        }
+                    }
+
+                    // If not a class instance, check if this is a module.function() call
                     // Check if this method exists as a regular function
                     if let Some(&func) = self.functions.get(method) {
                         // This is a module function call
@@ -1247,7 +1437,6 @@ impl<'ctx> CodeGen<'ctx> {
                             return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
                         }
                     }
-                    // If neither, fall through to regular method call handling
                 }
 
                 let obj_val = self.compile_expression(object)?;
@@ -1300,6 +1489,138 @@ impl<'ctx> CodeGen<'ctx> {
                     _ => Err(format!("Unknown method '{}' on list", method)),
                 }
             }
+
+            Expression::FString { parts, expressions } => {
+                // F-string implementation: concatenate parts and formatted expressions
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+
+                // Start with empty result string
+                let malloc_fn = *self.functions.get("malloc").unwrap();
+                let initial_size = i64_type.const_int(1, false);
+                let result_str = self.builder
+                    .build_call(malloc_fn, &[initial_size.into()], "fstring_result")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_pointer_value();
+
+                // Initialize with empty string
+                self.builder.build_store(result_str, i64_type.const_int(0, false)).unwrap();
+
+                let strcat_fn = *self.functions.get("strcat").unwrap();
+                let sprintf_fn = *self.functions.get("sprintf").unwrap();
+
+                // Iterate through parts and expressions
+                for (i, part) in parts.iter().enumerate() {
+                    // Add the string part if not empty
+                    if !part.is_empty() {
+                        let part_str = self.builder.build_global_string_ptr(part, &format!("fstr_part_{}", i)).unwrap();
+                        self.builder.build_call(strcat_fn, &[result_str.into(), part_str.as_pointer_value().into()], "").unwrap();
+                    }
+
+                    // Add the expression value if there is one
+                    if i < expressions.len() {
+                        let expr_val = self.compile_expression(&expressions[i])?;
+
+                        // Allocate buffer for formatted value (100 bytes should be enough)
+                        let buffer_size = i64_type.const_int(100, false);
+                        let buffer = self.builder
+                            .build_call(malloc_fn, &[buffer_size.into()], &format!("expr_buffer_{}", i))
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+
+                        // Format the value based on its type
+                        if expr_val.is_int_value() {
+                            let fmt = self.builder.build_global_string_ptr("%lld", "int_fmt").unwrap();
+                            self.builder.build_call(
+                                sprintf_fn,
+                                &[buffer.into(), fmt.as_pointer_value().into(), expr_val.into()],
+                                ""
+                            ).unwrap();
+                        } else if expr_val.is_float_value() {
+                            let fmt = self.builder.build_global_string_ptr("%g", "float_fmt").unwrap();
+                            self.builder.build_call(
+                                sprintf_fn,
+                                &[buffer.into(), fmt.as_pointer_value().into(), expr_val.into()],
+                                ""
+                            ).unwrap();
+                        } else if expr_val.is_pointer_value() {
+                            // Assume it's a string
+                            let fmt = self.builder.build_global_string_ptr("%s", "str_fmt").unwrap();
+                            self.builder.build_call(
+                                sprintf_fn,
+                                &[buffer.into(), fmt.as_pointer_value().into(), expr_val.into()],
+                                ""
+                            ).unwrap();
+                        }
+
+                        // Concatenate the formatted value
+                        self.builder.build_call(strcat_fn, &[result_str.into(), buffer.into()], "").unwrap();
+                    }
+                }
+
+                Ok(result_str.as_basic_value_enum())
+            }
         }
+    }
+
+    fn generate_constructor(&mut self, class_name: &str, fields: &[Field]) -> Result<(), String> {
+        // Get the struct type
+        let struct_type = *self.class_types.get(class_name).unwrap();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+        // Create constructor function signature
+        let param_types: Vec<BasicMetadataTypeEnum> = fields
+            .iter()
+            .map(|f| self.get_llvm_type(&f.field_type).into())
+            .collect();
+
+        let fn_type = ptr_type.fn_type(&param_types, false);
+        let function = self.module.add_function(class_name, fn_type, None);
+        self.functions.insert(class_name.to_string(), function);
+
+        // Create entry block
+        let entry = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry);
+
+        // Allocate memory for the struct
+        let size = struct_type.size_of().unwrap();
+        let malloc_fn = self.functions.get("malloc").unwrap();
+        let ptr = self
+            .builder
+            .build_call(*malloc_fn, &[size.into()], "obj_ptr")
+            .unwrap()
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+
+        // Initialize each field
+        for (i, _field) in fields.iter().enumerate() {
+            let field_ptr = self
+                .builder
+                .build_struct_gep(struct_type, ptr, i as u32, &format!("field_{}", i))
+                .unwrap();
+            let param_val = function.get_nth_param(i as u32).unwrap();
+            self.builder.build_store(field_ptr, param_val).unwrap();
+        }
+
+        // Call init method if it exists
+        let init_method_name = format!("{}::init", class_name);
+        if let Some(&init_fn) = self.functions.get(&init_method_name) {
+            self.builder
+                .build_call(init_fn, &[ptr.into()], "init_call")
+                .unwrap();
+        }
+
+        // Return the pointer
+        self.builder.build_return(Some(&ptr)).unwrap();
+
+        Ok(())
     }
 }

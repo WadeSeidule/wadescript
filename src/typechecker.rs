@@ -1,10 +1,15 @@
 use crate::ast::*;
 use std::collections::HashMap;
 
+struct ClassInfo {
+    fields: Vec<(String, Type)>, // Ordered fields for constructor
+    field_map: HashMap<String, Type>, // Quick lookup for field access
+}
+
 pub struct TypeChecker {
     symbol_table: Vec<HashMap<String, Type>>,
     functions: HashMap<String, (Vec<Type>, Type)>,
-    classes: HashMap<String, HashMap<String, Type>>,
+    classes: HashMap<String, ClassInfo>,
     current_function_return_type: Option<Type>,
     modules: HashMap<String, Vec<String>>, // module_name -> function_names
 }
@@ -123,10 +128,24 @@ impl TypeChecker {
             Statement::ClassDef {
                 name,
                 base_class: _,
+                fields,
                 methods,
             } => {
-                let mut class_methods = HashMap::new();
+                // Store class fields in order and in a map
+                let mut ordered_fields = Vec::new();
+                let mut field_map = HashMap::new();
+                for field in fields {
+                    ordered_fields.push((field.name.clone(), field.field_type.clone()));
+                    field_map.insert(field.name.clone(), field.field_type.clone());
+                }
 
+                let class_info = ClassInfo {
+                    fields: ordered_fields,
+                    field_map,
+                };
+                self.classes.insert(name.clone(), class_info);
+
+                // Register methods as functions with Class::method naming
                 for method in methods {
                     if let Statement::FunctionDef {
                         name: method_name,
@@ -141,12 +160,10 @@ impl TypeChecker {
                             format!("{}::{}", name, method_name),
                             (param_types, return_type.clone()),
                         );
-                        class_methods.insert(method_name.clone(), return_type.clone());
                     }
                 }
 
-                self.classes.insert(name.clone(), class_methods);
-
+                // Type check methods
                 for method in methods {
                     self.check_statement(method)?;
                 }
@@ -448,6 +465,40 @@ impl TypeChecker {
                     }
                 }
 
+                // Check if this is a class constructor call
+                if let Expression::Variable(class_name) = &**callee {
+                    if let Some(class_info) = self.classes.get(class_name) {
+                        // This is a constructor call - arguments must match field types in order
+                        let field_types: Vec<Type> = class_info.fields.iter()
+                            .map(|(_, field_type)| field_type.clone())
+                            .collect();
+
+                        if args.len() != field_types.len() {
+                            return Err(format!(
+                                "Constructor for '{}' expects {} arguments, got {}",
+                                class_name,
+                                field_types.len(),
+                                args.len()
+                            ));
+                        }
+
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_type = self.check_expression(arg)?;
+                            if !self.types_compatible(&field_types[i], &arg_type) {
+                                return Err(format!(
+                                    "Argument {} of constructor '{}': expected {}, got {}",
+                                    i + 1,
+                                    class_name,
+                                    field_types[i],
+                                    arg_type
+                                ));
+                            }
+                        }
+
+                        return Ok(Type::Custom(class_name.clone()));
+                    }
+                }
+
                 // Regular function call
                 if let Expression::Variable(func_name) = &**callee {
                     if let Some((param_types, return_type)) = self.functions.get(func_name).cloned() {
@@ -493,6 +544,28 @@ impl TypeChecker {
                 }
 
                 let obj_type = self.check_expression(object)?;
+
+                // Handle field access on custom types (classes)
+                if let Type::Custom(class_name) = &obj_type {
+                    if let Some(class_info) = self.classes.get(class_name) {
+                        // Check if field exists
+                        if let Some(field_type) = class_info.field_map.get(member) {
+                            // Check for private access
+                            if member.starts_with('_') {
+                                return Err(format!(
+                                    "Cannot access private field '{}' of class '{}'",
+                                    member, class_name
+                                ));
+                            }
+                            return Ok(field_type.clone());
+                        } else {
+                            return Err(format!(
+                                "Class '{}' has no field '{}'",
+                                class_name, member
+                            ));
+                        }
+                    }
+                }
 
                 // Handle .length property for arrays and lists
                 if member == "length" {
@@ -667,6 +740,62 @@ impl TypeChecker {
 
                 let obj_type = self.check_expression(object)?;
 
+                // Handle class methods
+                if let Type::Custom(class_name) = &obj_type {
+                    // Check for private method access
+                    if method.starts_with('_') {
+                        return Err(format!(
+                            "Cannot access private method '{}' of class '{}'",
+                            method, class_name
+                        ));
+                    }
+
+                    // Look up the method in functions as Class::method
+                    let method_full_name = format!("{}::{}", class_name, method);
+                    if let Some((param_types, return_type)) = self.functions.get(&method_full_name).cloned() {
+                        // First parameter should be self
+                        if param_types.is_empty() {
+                            return Err(format!(
+                                "Method '{}' of class '{}' must have 'self' parameter",
+                                method, class_name
+                            ));
+                        }
+
+                        // Check arguments (skip first param which is self)
+                        let method_params = &param_types[1..];
+                        if args.len() != method_params.len() {
+                            return Err(format!(
+                                "Method '{}.{}' expects {} arguments, got {}",
+                                class_name,
+                                method,
+                                method_params.len(),
+                                args.len()
+                            ));
+                        }
+
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_type = self.check_expression(arg)?;
+                            if !self.types_compatible(&method_params[i], &arg_type) {
+                                return Err(format!(
+                                    "Argument {} of method '{}.{}': expected {}, got {}",
+                                    i + 1,
+                                    class_name,
+                                    method,
+                                    method_params[i],
+                                    arg_type
+                                ));
+                            }
+                        }
+
+                        return Ok(return_type);
+                    } else {
+                        return Err(format!(
+                            "Class '{}' has no method '{}'",
+                            class_name, method
+                        ));
+                    }
+                }
+
                 match obj_type {
                     Type::List(elem_type) => match method.as_str() {
                         "push" => {
@@ -702,6 +831,15 @@ impl TypeChecker {
                     },
                     _ => Err(format!("Type {} has no methods", obj_type)),
                 }
+            }
+
+            Expression::FString { parts: _, expressions } => {
+                // Type check all embedded expressions
+                for expr in expressions {
+                    self.check_expression(expr)?;
+                }
+                // F-strings always result in a string
+                Ok(Type::Str)
             }
         }
     }

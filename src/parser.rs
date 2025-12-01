@@ -219,9 +219,28 @@ impl Parser {
         };
 
         self.consume(Token::LeftBrace, "Expected '{' before class body");
+        let mut fields = Vec::new();
         let mut methods = Vec::new();
 
         self.skip_newlines();
+
+        // Parse field declarations first
+        while !self.check(&Token::RightBrace) && !self.is_at_end() && !self.check(&Token::Def) {
+            // Field declaration: name: type
+            if let Token::Identifier(field_name) = self.advance() {
+                self.consume(Token::Colon, "Expected ':' after field name");
+                let field_type = self.parse_type();
+                fields.push(crate::ast::Field {
+                    name: field_name,
+                    field_type,
+                });
+                self.skip_newlines();
+            } else {
+                panic!("Expected field name in class body");
+            }
+        }
+
+        // Parse method definitions
         while !self.check(&Token::RightBrace) && !self.is_at_end() {
             methods.push(self.function_def());
             self.skip_newlines();
@@ -232,6 +251,7 @@ impl Parser {
         Statement::ClassDef {
             name,
             base_class,
+            fields,
             methods,
         }
     }
@@ -608,6 +628,68 @@ impl Parser {
         expr
     }
 
+    fn parse_fstring(&mut self, fstring: String) -> Expression {
+        let mut parts = Vec::new();
+        let mut expressions = Vec::new();
+        let mut current_part = String::new();
+        let mut chars = fstring.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                // Check for escaped {{
+                if chars.peek() == Some(&'{') {
+                    current_part.push('{');
+                    chars.next();
+                    continue;
+                }
+
+                // Save current string part
+                parts.push(current_part.clone());
+                current_part.clear();
+
+                // Parse expression inside {}
+                let mut expr_str = String::new();
+                let mut brace_depth = 1;
+                while let Some(ch) = chars.next() {
+                    if ch == '{' {
+                        brace_depth += 1;
+                        expr_str.push(ch);
+                    } else if ch == '}' {
+                        brace_depth -= 1;
+                        if brace_depth == 0 {
+                            break;
+                        }
+                        expr_str.push(ch);
+                    } else {
+                        expr_str.push(ch);
+                    }
+                }
+
+                // Parse the expression
+                let mut lexer = crate::lexer::Lexer::new(expr_str);
+                let mut temp_parser = Parser::new(lexer);
+                let expr = temp_parser.expression();
+                expressions.push(expr);
+            } else if ch == '}' {
+                // Check for escaped }}
+                if chars.peek() == Some(&'}') {
+                    current_part.push('}');
+                    chars.next();
+                } else {
+                    // Unmatched }
+                    panic!("Unmatched '}}' in f-string");
+                }
+            } else {
+                current_part.push(ch);
+            }
+        }
+
+        // Add final part
+        parts.push(current_part);
+
+        Expression::FString { parts, expressions }
+    }
+
     fn primary(&mut self) -> Expression {
         match self.peek().clone() {
             Token::IntLiteral(n) => {
@@ -621,6 +703,10 @@ impl Parser {
             Token::StringLiteral(s) => {
                 self.advance();
                 Expression::StringLiteral(s)
+            }
+            Token::FStringLiteral(s) => {
+                self.advance();
+                self.parse_fstring(s)
             }
             Token::True => {
                 self.advance();

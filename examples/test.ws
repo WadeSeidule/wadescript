@@ -1,21 +1,17 @@
 import "lib/list_utils"
 
-def main() -> int {
-    print_str("Hello World")
+class Test {
+    name: str
 
-    test_list: list[int] = [1, 2, 3]
-
-    test_list.push(4)
-
-    for item in test_list {
-        print_int(item)
+    def print_name(self: Test, phrase: str) -> str {
+        return phrase + " " + self.name
     }
 
-    print_int(test_list[0])
-    i: int = test_list.get(0)
-    print_int(i)
+}
 
-    print_int(sum_list(test_list))
+def main() -> int {
+    t: Test = Test("wade")
+    result: str = t.print_name("Hello")
+    print_str(result)
     return 0
-
 }

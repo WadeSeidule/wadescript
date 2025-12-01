@@ -6,6 +6,7 @@ pub enum Token {
     IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
+    FStringLiteral(String), // Raw f-string with {} placeholders
     BoolLiteral(bool),
 
     // Identifiers and keywords
@@ -178,6 +179,40 @@ impl Lexer {
         Token::StringLiteral(string)
     }
 
+    fn read_fstring(&mut self, quote: char) -> Token {
+        let mut string = String::new();
+        self.advance(); // skip opening quote
+
+        while let Some(ch) = self.current_char {
+            if ch == quote {
+                self.advance(); // skip closing quote
+                break;
+            } else if ch == '\\' {
+                self.advance();
+                if let Some(escaped) = self.current_char {
+                    let escaped_char = match escaped {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '\\' => '\\',
+                        '\'' => '\'',
+                        '"' => '"',
+                        '{' => '{',
+                        '}' => '}',
+                        _ => escaped,
+                    };
+                    string.push(escaped_char);
+                    self.advance();
+                }
+            } else {
+                string.push(ch);
+                self.advance();
+            }
+        }
+
+        Token::FStringLiteral(string)
+    }
+
     fn read_identifier(&mut self) -> Token {
         let mut ident = String::new();
 
@@ -236,6 +271,18 @@ impl Lexer {
                     return Token::Newline;
                 }
                 Some(ch) if ch.is_ascii_digit() => return self.read_number(),
+                Some('f') => {
+                    // Check if this is an f-string
+                    if self.position + 1 < self.input.len() {
+                        let next_char = self.input[self.position + 1];
+                        if next_char == '"' || next_char == '\'' {
+                            self.advance(); // skip 'f'
+                            return self.read_fstring(next_char);
+                        }
+                    }
+                    // Otherwise it's just an identifier
+                    return self.read_identifier();
+                }
                 Some(ch) if ch.is_alphabetic() || ch == '_' => return self.read_identifier(),
                 Some('"') => return self.read_string('"'),
                 Some('\'') => return self.read_string('\''),

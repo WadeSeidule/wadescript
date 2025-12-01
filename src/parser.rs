@@ -407,14 +407,30 @@ impl Parser {
     fn assignment(&mut self) -> Expression {
         let expr = self.or();
 
-        if let Expression::Variable(name) = &expr {
-            if self.match_token(&[Token::Equal]) {
-                let value = Box::new(self.assignment());
+        if self.match_token(&[Token::Equal]) {
+            let value = Box::new(self.assignment());
+
+            // Check if this is a simple variable assignment
+            if let Expression::Variable(name) = &expr {
                 return Expression::Assignment {
                     target: name.clone(),
                     value,
                 };
             }
+
+            // Check if this is an index assignment (e.g., arr[0] = x or dict["key"] = x)
+            if let Expression::Index { object, index } = expr {
+                // Extract the object variable name
+                if let Expression::Variable(obj_name) = *object {
+                    return Expression::IndexAssignment {
+                        object: obj_name,
+                        index,
+                        value,
+                    };
+                }
+            }
+
+            panic!("Invalid assignment target");
         }
 
         expr

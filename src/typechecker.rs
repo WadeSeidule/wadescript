@@ -84,6 +84,13 @@ impl TypeChecker {
                         } else {
                             self.check_expression(init_expr)?
                         }
+                    } else if let Expression::DictLiteral { pairs } = init_expr {
+                        // For empty dict literals, use the type annotation
+                        if pairs.is_empty() {
+                            type_annotation.clone()
+                        } else {
+                            self.check_expression(init_expr)?
+                        }
                     } else {
                         self.check_expression(init_expr)?
                     };
@@ -689,8 +696,42 @@ impl TypeChecker {
                 }
             }
 
-            Expression::IndexAssignment { .. } => {
-                Err("Index assignment not yet supported".to_string())
+            Expression::IndexAssignment { object, index, value } => {
+                let obj_type = self.lookup_variable(object)
+                    .ok_or_else(|| format!("Undefined variable '{}'", object))?;
+                let idx_type = self.check_expression(index)?;
+                let val_type = self.check_expression(value)?;
+
+                match &obj_type {
+                    Type::Array(elem_type, _) | Type::List(elem_type) => {
+                        if idx_type != Type::Int {
+                            return Err(format!("Array/List index must be int, got {}", idx_type));
+                        }
+                        if !self.types_compatible(elem_type, &val_type) {
+                            return Err(format!(
+                                "Cannot assign {} to {}[int] (expected {})",
+                                val_type, obj_type, elem_type
+                            ));
+                        }
+                        Ok(Type::Void)
+                    }
+                    Type::Dict(key_type, elem_type) => {
+                        if !self.types_compatible(key_type, &idx_type) {
+                            return Err(format!(
+                                "Dict key type mismatch: expected {}, got {}",
+                                key_type, idx_type
+                            ));
+                        }
+                        if !self.types_compatible(elem_type, &val_type) {
+                            return Err(format!(
+                                "Cannot assign {} to {}[{}] (expected {})",
+                                val_type, obj_type, key_type, elem_type
+                            ));
+                        }
+                        Ok(Type::Void)
+                    }
+                    _ => Err(format!("Cannot index assign into type {}", obj_type)),
+                }
             }
 
             Expression::MethodCall { object, method, args } => {

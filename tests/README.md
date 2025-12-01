@@ -34,12 +34,20 @@ All test files follow the naming convention `test_*.ws` and must have a correspo
    - Methods: push(), pop(), get()
    - Length property
 
-6. **test_comparisons.ws** - Operators
+6. **test_dictionaries.ws** - Dictionary operations
+   - Dictionary creation with initial values
+   - Empty dictionary creation
+   - Key-value insertion
+   - Dictionary access by key
+   - Value updates
+   - Hash table rehashing (15+ entries)
+
+7. **test_comparisons.ws** - Operators
    - Comparison operators
    - Logical operators
    - Negation
 
-7. **test_integration.ws** - Complex integration
+8. **test_integration.ws** - Complex integration
    - Multiple features combined
    - Prime number generation
    - List building with conditionals
@@ -49,8 +57,15 @@ All test files follow the naming convention `test_*.ws` and must have a correspo
 From the project root:
 
 ```bash
-./run_tests.sh
+./ws test
 ```
+
+The test runner will:
+- Find all `test_*.ws` files in `tests/` directory
+- Compile and run each test
+- Compare output with corresponding `.expected` file
+- Report pass/fail status for each test
+- Display a summary with total passed/failed counts
 
 ## Expected Output Format
 
@@ -71,34 +86,39 @@ Hello
 
 ## Adding Tests
 
-1. Create `tests/test_feature.ws`
-2. Create `tests/test_feature.expected`
-3. Run `./run_tests.sh`
+1. Create `tests/test_feature.ws` with your test code
+2. Run the test and capture output: `./ws run tests/test_feature.ws > tests/test_feature.expected`
+3. Manually verify the output is correct
+4. Run `./ws test` to verify the new test passes
 
-The new test will be automatically discovered.
+The new test will be automatically discovered and included in the test suite.
 
 ## Test Coverage
 
 Current coverage: **100%** of implemented features
 
-- ✅ All basic types
-- ✅ All operators
+- ✅ All basic types (int, float, bool, str)
+- ✅ All operators (arithmetic, comparison, logical)
 - ✅ Functions and recursion
-- ✅ Control flow
-- ✅ For loops
-- ✅ Lists
-- ✅ Integration
+- ✅ Control flow (if/elif/else, while)
+- ✅ For loops and range()
+- ✅ Lists (creation, methods, indexing)
+- ✅ Dictionaries (hash table, CRUD operations)
+- ✅ Module imports
+- ✅ Integration tests
 
 ## Quick Reference
 
 ```bash
 # Run all tests
-./run_tests.sh
+./ws test
 
 # Run a single test manually
-./target/release/wadescript tests/test_lists.ws
-./test_lists
+./ws run tests/test_lists.ws
 
-# Compare output
-diff <(./test_lists) tests/test_lists.expected
+# Add a new test
+./ws run tests/test_feature.ws > tests/test_feature.expected
+
+# Verify all tests pass
+./ws test
 ```

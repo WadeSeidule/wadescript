@@ -153,11 +153,12 @@ fn main() {
         .write_to_file(module, FileType::Object, Path::new(&obj_file))
         .unwrap();
 
-    // Get the runtime library path
-    let runtime_lib = "runtime/list.o";
+    // Get the runtime library paths
+    let list_runtime = "runtime/list.o";
+    let dict_runtime = "runtime/dict.o";
 
     let output = Command::new("clang")
-        .args(&[&obj_file, runtime_lib, "-o", exe_file])
+        .args(&[&obj_file, list_runtime, dict_runtime, "-o", exe_file])
         .output()
         .expect("Failed to link object file with clang");
 

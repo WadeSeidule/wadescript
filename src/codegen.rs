@@ -76,6 +76,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_memory_functions();
         self.declare_builtin_functions();
         self.declare_list_functions();
+        self.declare_dict_functions();
 
         for statement in &program.statements {
             self.compile_statement(statement)?;
@@ -136,6 +137,11 @@ impl<'ctx> CodeGen<'ctx> {
         let sprintf_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], true);
         let sprintf_fn = self.module.add_function("sprintf", sprintf_type, None);
         self.functions.insert("sprintf".to_string(), sprintf_fn);
+
+        // strcmp(str1, str2) -> i32
+        let strcmp_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let strcmp_fn = self.module.add_function("strcmp", strcmp_type, None);
+        self.functions.insert("strcmp".to_string(), strcmp_fn);
     }
 
     fn declare_builtin_functions(&mut self) {
@@ -305,6 +311,60 @@ impl<'ctx> CodeGen<'ctx> {
 
         self.builder.build_return(Some(&length)).unwrap();
         self.functions.insert("list_length".to_string(), list_length_fn);
+    }
+
+    fn declare_dict_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let i32_type = self.context.i32_type();
+        let void_type = self.context.void_type();
+
+        // Dict structure in memory: { ptr buckets, i64 capacity, i64 length }
+        // Uses hash table with separate chaining for collisions
+        // Total size: 24 bytes (8 + 8 + 8)
+
+        // dict_create() -> ptr (creates empty hash table dict)
+        let dict_create_type = ptr_type.fn_type(&[], false);
+        let dict_create_fn = self.module.add_function("dict_create", dict_create_type, None);
+        self.functions.insert("dict_create".to_string(), dict_create_fn);
+
+        // dict_set(dict_ptr, key_str, value_int) -> void
+        let dict_set_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into(), i64_type.into()], false);
+        let dict_set_fn = self.module.add_function("dict_set", dict_set_type, None);
+        self.functions.insert("dict_set".to_string(), dict_set_fn);
+
+        // dict_get(dict_ptr, key_str) -> i64 (returns 0 if not found)
+        let dict_get_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let dict_get_fn = self.module.add_function("dict_get", dict_get_type, None);
+        self.functions.insert("dict_get".to_string(), dict_get_fn);
+
+        // dict_has(dict_ptr, key_str) -> i32 (returns 1 if exists, 0 otherwise)
+        let dict_has_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let dict_has_fn = self.module.add_function("dict_has", dict_has_type, None);
+        self.functions.insert("dict_has".to_string(), dict_has_fn);
+
+        // dict_length(dict_ptr) -> i64
+        let dict_length_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let dict_length_fn = self.module.add_function("dict_length", dict_length_type, None);
+        let entry = self.context.append_basic_block(dict_length_fn, "entry");
+        self.builder.position_at_end(entry);
+
+        let dict_arg = dict_length_fn.get_nth_param(0).unwrap().into_pointer_value();
+
+        // Load length from offset 8
+        let dict_as_ptr = self.builder.build_pointer_cast(dict_arg, ptr_type, "").unwrap();
+        let length_ptr = unsafe {
+            self.builder.build_gep(
+                ptr_type,
+                dict_as_ptr,
+                &[i64_type.const_int(1, false)],
+                "length_ptr"
+            ).unwrap()
+        };
+        let length = self.builder.build_load(i64_type, length_ptr, "length").unwrap();
+
+        self.builder.build_return(Some(&length)).unwrap();
+        self.functions.insert("dict_length".to_string(), dict_length_fn);
     }
 
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
@@ -1341,29 +1401,97 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(list_ptr)
             }
 
-            Expression::DictLiteral { .. } => {
-                Err("Dict literals not yet fully implemented in codegen".to_string())
+            Expression::DictLiteral { pairs } => {
+                // Create empty dict
+                let dict_create = self.functions.get("dict_create").unwrap();
+                let dict_ptr = self
+                    .builder
+                    .build_call(*dict_create, &[], "dict")
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                // Add each key-value pair
+                if !pairs.is_empty() {
+                    let dict_set = *self.functions.get("dict_set").unwrap();
+
+                    for (key_expr, val_expr) in pairs {
+                        let key_value = self.compile_expression(key_expr)?;
+                        let val_value = self.compile_expression(val_expr)?;
+
+                        // For now, assume keys are strings and values are ints
+                        self.builder
+                            .build_call(dict_set, &[dict_ptr.into(), key_value.into(), val_value.into()], "")
+                            .unwrap();
+                    }
+                }
+
+                Ok(dict_ptr)
             }
 
             Expression::Index { object, index } => {
                 let obj_val = self.compile_expression(object)?;
                 let idx_val = self.compile_expression(index)?;
 
-                // For now, only support int list indexing
-                let list_get = self.functions.get("list_get_i64").unwrap();
-                let result = self
-                    .builder
-                    .build_call(*list_get, &[obj_val.into(), idx_val.into()], "element")
-                    .unwrap()
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap();
-
-                Ok(result)
+                // Check if this is dict access (string key) or list access (int index)
+                if idx_val.is_pointer_value() {
+                    // Dict access with string key
+                    let dict_get = self.functions.get("dict_get").unwrap();
+                    let result = self
+                        .builder
+                        .build_call(*dict_get, &[obj_val.into(), idx_val.into()], "dict_value")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    Ok(result)
+                } else {
+                    // List access with int index
+                    let list_get = self.functions.get("list_get_i64").unwrap();
+                    let result = self
+                        .builder
+                        .build_call(*list_get, &[obj_val.into(), idx_val.into()], "element")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    Ok(result)
+                }
             }
 
-            Expression::IndexAssignment { .. } => {
-                Err("Index assignment not yet implemented".to_string())
+            Expression::IndexAssignment { object, index, value } => {
+                // Get the object (dict or list) and load its value
+                let (obj_ptr, obj_llvm_type, _) = self.variables.get(object)
+                    .ok_or_else(|| format!("Undefined variable '{}'", object))?
+                    .clone();
+
+                // Load the actual dict/list pointer from the variable
+                let obj_val = self.builder.build_load(obj_llvm_type, obj_ptr, object)
+                    .unwrap();
+
+                let idx_val = self.compile_expression(index)?;
+                let val_val = self.compile_expression(value)?;
+
+                // Check if this is dict assignment (string key) or list assignment (int index)
+                if idx_val.is_pointer_value() {
+                    // Dict assignment with string key
+                    let dict_set = self.functions.get("dict_set")
+                        .ok_or("dict_set function not found")?;
+                    self.builder.build_call(*dict_set,
+                        &[obj_val.into(), idx_val.into(), val_val.into()], "")
+                        .unwrap();
+                } else {
+                    // List assignment with int index
+                    let list_set = self.functions.get("list_set")
+                        .ok_or("list_set function not found")?;
+                    self.builder.build_call(*list_set,
+                        &[obj_val.into(), idx_val.into(), val_val.into()], "")
+                        .unwrap();
+                }
+
+                // Return void
+                Ok(self.context.i64_type().const_zero().as_basic_value_enum())
             }
 
             Expression::MethodCall { object, method, args } => {

@@ -255,9 +255,10 @@ impl TypeChecker {
                     Type::List(elem_type) => *elem_type,
                     Type::Array(elem_type, _) => *elem_type,
                     Type::Dict(key_type, _) => *key_type, // Iterate over keys
+                    Type::Str => Type::Str, // Iterate over characters (as strings)
                     _ => {
                         return Err(format!(
-                            "Cannot iterate over type {}. Only list, array, and dict are iterable.",
+                            "Cannot iterate over type {}. Only list, array, dict, and str are iterable.",
                             iterable_type
                         ));
                     }
@@ -582,10 +583,10 @@ impl TypeChecker {
                     }
                 }
 
-                // Handle .length property for arrays and lists
+                // Handle .length property for arrays, lists, and strings
                 if member == "length" {
                     match obj_type {
-                        Type::Array(_, _) | Type::List(_) => Ok(Type::Int),
+                        Type::Array(_, _) | Type::List(_) | Type::Str => Ok(Type::Int),
                         _ => Err(format!("Type {} has no property '{}'", obj_type, member)),
                     }
                 } else {
@@ -877,6 +878,41 @@ impl TypeChecker {
                             Ok(*elem_type)
                         }
                         _ => Err(format!("Unknown method '{}' on list", method)),
+                    },
+                    Type::Str => match method.as_str() {
+                        "upper" | "lower" => {
+                            if !args.is_empty() {
+                                return Err(format!("{}() takes no arguments", method));
+                            }
+                            Ok(Type::Str)
+                        }
+                        "contains" => {
+                            if args.len() != 1 {
+                                return Err("contains() takes exactly 1 argument".to_string());
+                            }
+                            let arg_type = self.check_expression(&args[0])?;
+                            if arg_type != Type::Str {
+                                return Err(format!(
+                                    "contains() argument must be str, got {}",
+                                    arg_type
+                                ));
+                            }
+                            Ok(Type::Bool)
+                        }
+                        "split" => {
+                            if args.len() != 1 {
+                                return Err("split() takes exactly 1 argument".to_string());
+                            }
+                            let arg_type = self.check_expression(&args[0])?;
+                            if arg_type != Type::Str {
+                                return Err(format!(
+                                    "split() argument must be str, got {}",
+                                    arg_type
+                                ));
+                            }
+                            Ok(Type::List(Box::new(Type::Str)))
+                        }
+                        _ => Err(format!("Unknown method '{}' on str", method)),
                     },
                     _ => Err(format!("Type {} has no methods", obj_type)),
                 }

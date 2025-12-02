@@ -86,6 +86,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_builtin_functions();
         self.declare_list_functions();
         self.declare_dict_functions();
+        self.declare_string_functions();
 
         for statement in &program.statements {
             self.compile_statement(statement)?;
@@ -375,6 +376,37 @@ impl<'ctx> CodeGen<'ctx> {
         self.functions.insert("dict_length".to_string(), dict_length_fn);
     }
 
+    fn declare_string_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let i32_type = self.context.i32_type();
+
+        // str_length(str_ptr) -> i64
+        let str_length_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let str_length_fn = self.module.add_function("str_length", str_length_type, None);
+        self.functions.insert("str_length".to_string(), str_length_fn);
+
+        // str_upper(str_ptr) -> ptr (returns new string)
+        let str_upper_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let str_upper_fn = self.module.add_function("str_upper", str_upper_type, None);
+        self.functions.insert("str_upper".to_string(), str_upper_fn);
+
+        // str_lower(str_ptr) -> ptr (returns new string)
+        let str_lower_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let str_lower_fn = self.module.add_function("str_lower", str_lower_type, None);
+        self.functions.insert("str_lower".to_string(), str_lower_fn);
+
+        // str_contains(str_ptr, substring_ptr) -> i32
+        let str_contains_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let str_contains_fn = self.module.add_function("str_contains", str_contains_type, None);
+        self.functions.insert("str_contains".to_string(), str_contains_fn);
+
+        // str_char_at(str_ptr, index) -> ptr (returns single-char string)
+        let str_char_at_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        let str_char_at_fn = self.module.add_function("str_char_at", str_char_at_type, None);
+        self.functions.insert("str_char_at".to_string(), str_char_at_fn);
+    }
+
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
             Statement::VarDecl {
@@ -659,12 +691,29 @@ impl<'ctx> CodeGen<'ctx> {
                 let iterable_alloca = self.builder.build_alloca(iterable_type, "_iterable").unwrap();
                 self.builder.build_store(iterable_alloca, iterable_val).unwrap();
 
-                // Get length
+                // Determine if iterating over a string or a list
+                let is_string = if let Expression::Variable(var_name) = iterable {
+                    if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                        ast_type == &Type::Str
+                    } else {
+                        false
+                    }
+                } else if matches!(iterable, Expression::StringLiteral(_)) {
+                    true
+                } else {
+                    false
+                };
+
+                // Get length using appropriate function
                 let iterable_loaded = self.builder.build_load(iterable_type, iterable_alloca, "").unwrap();
-                let list_length_fn = self.functions.get("list_length").unwrap();
+                let length_fn = if is_string {
+                    self.functions.get("str_length").unwrap()
+                } else {
+                    self.functions.get("list_length").unwrap()
+                };
                 let length = self
                     .builder
-                    .build_call(*list_length_fn, &[iterable_loaded.into()], "length")
+                    .build_call(*length_fn, &[iterable_loaded.into()], "length")
                     .unwrap()
                     .try_as_basic_value()
                     .left()
@@ -699,23 +748,38 @@ impl<'ctx> CodeGen<'ctx> {
                 // Body block
                 self.builder.position_at_end(body_block);
 
-                // Load item: item = list[idx]
+                // Load item: item = iterable[idx]
                 let iterable_loaded = self.builder.build_load(iterable_type, iterable_alloca, "").unwrap();
                 let idx_loaded = self.builder.build_load(i64_type, idx_alloca, "").unwrap();
-                let list_get_fn = self.functions.get("list_get_i64").unwrap();
-                let item_val = self
-                    .builder
-                    .build_call(*list_get_fn, &[iterable_loaded.into(), idx_loaded.into()], "item")
-                    .unwrap()
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap();
+
+                let (item_val, item_ast_type) = if is_string {
+                    // For strings, use str_char_at
+                    let str_char_at_fn = self.functions.get("str_char_at").unwrap();
+                    let char_val = self
+                        .builder
+                        .build_call(*str_char_at_fn, &[iterable_loaded.into(), idx_loaded.into()], "char")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    (char_val, Type::Str)
+                } else {
+                    // For lists, use list_get_i64
+                    let list_get_fn = self.functions.get("list_get_i64").unwrap();
+                    let item_val = self
+                        .builder
+                        .build_call(*list_get_fn, &[iterable_loaded.into(), idx_loaded.into()], "item")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    (item_val, Type::Int)
+                };
 
                 // Declare loop variable
                 let item_alloca = self.builder.build_alloca(item_val.get_type(), variable).unwrap();
                 self.builder.build_store(item_alloca, item_val).unwrap();
-                // TODO: Infer proper element type from iterable
-                self.variables.insert(variable.clone(), (item_alloca, item_val.get_type(), Type::Int));
+                self.variables.insert(variable.clone(), (item_alloca, item_val.get_type(), item_ast_type));
 
                 // Push loop context for break/continue (continue goes to increment block)
                 self.loop_stack.push(LoopContext {
@@ -1427,13 +1491,31 @@ impl<'ctx> CodeGen<'ctx> {
                     }
                 }
 
-                // Handle .length property for lists
+                // Handle .length property for lists and strings
                 if member == "length" {
                     let obj_val = self.compile_expression(object)?;
-                    let list_length = self.functions.get("list_length").unwrap();
+
+                    // Determine the type of object to call the right function
+                    // Try to get the type from the variable if it's a variable reference
+                    let use_str_length = if let Expression::Variable(var_name) = &**object {
+                        if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                            ast_type == &Type::Str
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    let length_fn = if use_str_length {
+                        self.functions.get("str_length").unwrap()
+                    } else {
+                        self.functions.get("list_length").unwrap()
+                    };
+
                     let length = self
                         .builder
-                        .build_call(*list_length, &[obj_val.into()], "length")
+                        .build_call(*length_fn, &[obj_val.into()], "length")
                         .unwrap()
                         .try_as_basic_value()
                         .left()
@@ -1698,7 +1780,59 @@ impl<'ctx> CodeGen<'ctx> {
                         Ok(result)
                     }
 
-                    _ => Err(format!("Unknown method '{}' on list", method)),
+                    "upper" => {
+                        if !args.is_empty() {
+                            return Err("upper() takes no arguments".to_string());
+                        }
+                        let str_upper = *self.functions.get("str_upper").unwrap();
+                        let result = self
+                            .builder
+                            .build_call(str_upper, &[obj_val.into()], "upper_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+                        Ok(result)
+                    }
+
+                    "lower" => {
+                        if !args.is_empty() {
+                            return Err("lower() takes no arguments".to_string());
+                        }
+                        let str_lower = *self.functions.get("str_lower").unwrap();
+                        let result = self
+                            .builder
+                            .build_call(str_lower, &[obj_val.into()], "lower_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+                        Ok(result)
+                    }
+
+                    "contains" => {
+                        if args.len() != 1 {
+                            return Err("contains() takes exactly 1 argument".to_string());
+                        }
+                        let arg_val = self.compile_expression(&args[0])?;
+                        let str_contains = *self.functions.get("str_contains").unwrap();
+                        let result = self
+                            .builder
+                            .build_call(str_contains, &[obj_val.into(), arg_val.into()], "contains_result")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+                        // Convert i32 result to i64 for consistency
+                        let result_i64 = self.builder.build_int_z_extend(
+                            result.into_int_value(),
+                            self.context.i64_type(),
+                            "contains_i64"
+                        ).unwrap();
+                        Ok(result_i64.as_basic_value_enum())
+                    }
+
+                    _ => Err(format!("Unknown method '{}'", method)),
                 }
             }
 

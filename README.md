@@ -11,15 +11,19 @@ A statically-typed, compiled programming language with Python-like syntax, built
 - Support for:
   - Basic types: `int`, `float`, `bool`, `str`
   - **Dynamic lists**: `list[int]`, `list[str]` with runtime support
-  - **List literals**: `[1, 2, 3, 4, 5]` with full element population
+  - **Dictionaries**: `dict[str, int]` with hash table implementation
+  - **String methods**: `.upper()`, `.lower()`, `.contains()`, `.length`
+  - **String iteration**: Iterate over strings character by character
   - Functions with parameters and return types
-  - Control flow: `if`/`elif`/`else`, `while` loops, **`for` loops**
-  - **Python-style iteration** over lists with `for item in list`
+  - Control flow: `if`/`elif`/`else`, `while`, `for` loops, `break`/`continue`
+  - **Python-style iteration** over lists and strings
   - **`range()` function** for numeric iteration
+  - **Compound operators**: `+=`, `-=`, `*=`, `/=`, `++`, `--`
+  - **Assert statements** for testing
+  - **F-strings** for string interpolation
   - **Import system** for code reuse across files
+  - Classes with methods and fields
   - Recursion
-  - Built-in print functions for console output
-  - Classes and methods (basic support)
 
 ## Syntax Examples
 
@@ -75,9 +79,24 @@ for num in numbers {
     print_int(num)
 }
 
+# Iterate over strings
+for char in "hello" {
+    print_str(char)  # Prints each character
+}
+
 # Range function for numeric iteration
 for i in range(10) {
     print_int(i)  # Prints 0 through 9
+}
+
+# Break and continue
+while True {
+    if condition {
+        break     # Exit loop
+    }
+    if other {
+        continue  # Skip to next iteration
+    }
 }
 ```
 
@@ -108,6 +127,42 @@ def main() -> int {
 ```
 
 See `LISTS.md` for complete documentation.
+
+### Strings
+
+WadeScript has full string support with methods and iteration!
+
+```wadescript
+def main() -> int {
+    # String properties
+    s: str = "hello"
+    len: int = s.length        # Get string length: 5
+
+    # String methods
+    upper: str = s.upper()         # Convert to uppercase: "HELLO"
+    lower: str = "WORLD".lower()   # Convert to lowercase: "world"
+    has: bool = s.contains("ell")  # Check if contains substring: true
+
+    # String iteration - iterate over characters
+    for char in "abc" {
+        print_str(char)    # Prints: a, b, c (one per line)
+    }
+
+    # F-strings for string interpolation
+    name: str = "Alice"
+    age: int = 25
+    msg: str = f"Name: {name}, Age: {age}"
+    print_str(msg)  # Prints: Name: Alice, Age: 25
+
+    return 0
+}
+```
+
+**Available String Methods:**
+- `.length` - Returns the length of the string (property)
+- `.upper()` - Returns a new string with all characters in uppercase
+- `.lower()` - Returns a new string with all characters in lowercase
+- `.contains(substring: str) -> bool` - Checks if the string contains a substring
 
 ### Printing to Console
 
@@ -250,11 +305,19 @@ Key differences:
 WadeScript has complete implementations of:
 - ✅ Core types (int, float, bool, str)
 - ✅ Functions and recursion
-- ✅ Control flow (if/elif/else, while, for)
+- ✅ Control flow (if/elif/else, while, for, break/continue)
 - ✅ Dynamic lists with full runtime support
-- ✅ Python-style iteration
+- ✅ Dictionaries with hash table implementation
+- ✅ String methods (upper, lower, contains, length)
+- ✅ String iteration (character-by-character)
+- ✅ Python-style iteration over lists and strings
+- ✅ Compound operators (+=, -=, *=, /=, ++, --)
+- ✅ Assert statements for testing
+- ✅ F-strings for string interpolation
+- ✅ Classes with methods and fields
 - ✅ Import system for code reuse
-- ✅ Comprehensive test suite (8 tests, 100% passing)
+- ✅ Comprehensive test suite (14 tests, 100% passing)
+- ✅ 117 unit tests (22 runtime + 95 compiler)
 
 See `DATA_STRUCTURES_STATUS.md` for detailed implementation status.
 See `IMPORTS.md` for import system documentation.

@@ -7,11 +7,15 @@ WadeScript is a statically-typed programming language that compiles to native co
 **Language Features:**
 - Static type system with type inference
 - Functions with explicit return types
-- Control flow (if/elif/else, while, for loops)
+- Control flow (if/elif/else, while, for loops, break/continue)
 - Data structures (lists, dictionaries, arrays)
+- String methods (upper, lower, contains) and string iteration
 - Classes with methods and fields
 - Module system with imports
 - F-strings for string interpolation
+- Compound assignment operators (+=, -=, *=, /=)
+- Increment/decrement operators (++, --)
+- Assert statements for testing
 - Built-in functions (print_int, print_float, print_str, print_bool, range)
 
 ## Building and Running
@@ -89,7 +93,8 @@ wadescript/
 │   └── runtime/          # Rust runtime library (compiled to staticlib)
 │       ├── lib.rs        # Runtime library entry point
 │       ├── list.rs       # Dynamic list operations
-│       └── dict.rs       # Hash table dictionary operations
+│       ├── dict.rs       # Hash table dictionary operations
+│       └── string.rs     # String manipulation operations
 ├── examples/
 │   ├── hello.ws          # Hello world example
 │   ├── fibonacci.ws      # Fibonacci sequence
@@ -172,6 +177,16 @@ The runtime is implemented in Rust and compiled as a static library (`libwadescr
 - O(1) average case for get/set operations
 - Automatic rehashing doubles capacity and redistributes entries
 - Custom string operations (dup, cmp) for C-string compatibility
+
+**Strings** (src/runtime/string.rs):
+- Functions: `str_length`, `str_upper`, `str_lower`, `str_contains`, `str_char_at`
+- All functions work with null-terminated C strings (ptr to u8)
+- `str_length`: Returns length of string as i64
+- `str_upper` / `str_lower`: Allocate and return new strings with case conversion
+- `str_contains`: Returns 1 if substring found, 0 otherwise
+- `str_char_at`: Returns single-character string at given index (used for iteration)
+- Memory allocation via Rust's alloc API for new strings
+- UTF-8 aware string operations via Rust's str methods
 
 ## Type System
 
@@ -278,6 +293,7 @@ def main() -> int {
 - Break and continue statements
 - Lists (creation, indexing, methods, iteration)
 - Dictionaries (hash table operations, rehashing)
+- Strings (methods: upper, lower, contains; iteration; length property)
 - Module imports and namespacing
 - Compound assignments (+=, -=, *=, /=)
 - Increment/decrement operators (++, --)
@@ -340,10 +356,37 @@ for item in items {
     print_int(item)
 }
 
+# For loop over string
+for char in "hello" {
+    print_str(char)  # prints each character
+}
+
 # While loop
 while condition {
     # body
 }
+```
+
+### Strings
+```wadescript
+# String properties
+s: str = "hello"
+len: int = s.length  # 5
+
+# String methods
+upper: str = s.upper()         # "HELLO"
+lower: str = "WORLD".lower()   # "world"
+has: bool = s.contains("ell")  # true
+
+# String iteration
+for char in "abc" {
+    print_str(char)  # prints: a, b, c
+}
+
+# F-strings
+name: str = "Alice"
+age: int = 25
+msg: str = f"Name: {name}, Age: {age}"
 ```
 
 ## Important Notes
@@ -360,9 +403,12 @@ while condition {
 
 - Array type full implementation
 - More collection methods (map, filter, reduce)
-- String methods and string builder
+- More string methods (split with list return, replace, trim, starts_with, ends_with)
+- String builder for efficient concatenation
 - File I/O operations
 - Error handling (try/catch)
+- Const variables
+- Tuple type
 - Generics
 - Traits/interfaces
 - Package manager

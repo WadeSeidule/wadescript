@@ -91,6 +91,22 @@ impl Parser {
                 self.skip_newlines();
                 Statement::Continue
             }
+            Token::Assert => {
+                self.advance();
+                let condition = self.expression();
+                // Optional: parse message after comma
+                let message = if self.match_token(&[Token::Comma]) {
+                    if let Expression::StringLiteral(s) = self.expression() {
+                        Some(s)
+                    } else {
+                        panic!("Assert message must be a string literal");
+                    }
+                } else {
+                    None
+                };
+                self.skip_newlines();
+                Statement::Assert { condition, message }
+            }
             Token::Pass => {
                 self.advance();
                 self.skip_newlines();
@@ -103,6 +119,32 @@ impl Parser {
                 } else {
                     unreachable!()
                 };
+
+                // Check for ++ or -- operators
+                if self.match_token(&[Token::PlusPlus]) {
+                    self.skip_newlines();
+                    // Desugar x++ to x = x + 1
+                    return Statement::Expression(Expression::Assignment {
+                        target: name.clone(),
+                        value: Box::new(Expression::Binary {
+                            left: Box::new(Expression::Variable(name)),
+                            op: BinaryOp::Add,
+                            right: Box::new(Expression::IntLiteral(1)),
+                        }),
+                    });
+                }
+                if self.match_token(&[Token::MinusMinus]) {
+                    self.skip_newlines();
+                    // Desugar x-- to x = x - 1
+                    return Statement::Expression(Expression::Assignment {
+                        target: name.clone(),
+                        value: Box::new(Expression::Binary {
+                            left: Box::new(Expression::Variable(name)),
+                            op: BinaryOp::Subtract,
+                            right: Box::new(Expression::IntLiteral(1)),
+                        }),
+                    });
+                }
 
                 if self.match_token(&[Token::Colon]) {
                     let type_annotation = self.parse_type();
@@ -406,6 +448,55 @@ impl Parser {
 
     fn assignment(&mut self) -> Expression {
         let expr = self.or();
+
+        // Check for compound assignment operators
+        if self.match_token(&[Token::PlusEqual, Token::MinusEqual, Token::StarEqual, Token::SlashEqual]) {
+            let op_token = self.tokens[self.current - 1].clone();
+            let right_value = Box::new(self.assignment());
+
+            // Determine the binary operator
+            let binary_op = match op_token {
+                Token::PlusEqual => BinaryOp::Add,
+                Token::MinusEqual => BinaryOp::Subtract,
+                Token::StarEqual => BinaryOp::Multiply,
+                Token::SlashEqual => BinaryOp::Divide,
+                _ => unreachable!(),
+            };
+
+            // Desugar: x += 1 becomes x = x + 1
+            if let Expression::Variable(name) = &expr {
+                let new_value = Box::new(Expression::Binary {
+                    left: Box::new(Expression::Variable(name.clone())),
+                    op: binary_op,
+                    right: right_value,
+                });
+                return Expression::Assignment {
+                    target: name.clone(),
+                    value: new_value,
+                };
+            }
+
+            // For index assignments: arr[i] += 1 becomes arr[i] = arr[i] + 1
+            if let Expression::Index { object, index } = expr {
+                if let Expression::Variable(obj_name) = *object.clone() {
+                    let new_value = Box::new(Expression::Binary {
+                        left: Box::new(Expression::Index {
+                            object: Box::new(Expression::Variable(obj_name.clone())),
+                            index: index.clone(),
+                        }),
+                        op: binary_op,
+                        right: right_value,
+                    });
+                    return Expression::IndexAssignment {
+                        object: obj_name,
+                        index,
+                        value: new_value,
+                    };
+                }
+            }
+
+            panic!("Invalid compound assignment target");
+        }
 
         if self.match_token(&[Token::Equal]) {
             let value = Box::new(self.assignment());

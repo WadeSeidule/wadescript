@@ -25,6 +25,7 @@ pub enum Token {
     Pass,
     Break,
     Continue,
+    Assert,
     And,
     Or,
     Not,
@@ -49,6 +50,12 @@ pub enum Token {
     DoubleSlash,
     DoubleStar,
     Equal,
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    PlusPlus,
+    MinusMinus,
     DoubleEqual,
     NotEqual,
     Less,
@@ -240,6 +247,7 @@ impl Lexer {
             "pass" => Token::Pass,
             "break" => Token::Break,
             "continue" => Token::Continue,
+            "assert" => Token::Assert,
             "and" => Token::And,
             "or" => Token::Or,
             "not" => Token::Not,
@@ -289,13 +297,29 @@ impl Lexer {
                 Some('\'') => return self.read_string('\''),
                 Some('+') => {
                     self.advance();
+                    if self.current_char == Some('+') {
+                        self.advance();
+                        return Token::PlusPlus;
+                    }
+                    if self.current_char == Some('=') {
+                        self.advance();
+                        return Token::PlusEqual;
+                    }
                     return Token::Plus;
                 }
                 Some('-') => {
                     self.advance();
+                    if self.current_char == Some('-') {
+                        self.advance();
+                        return Token::MinusMinus;
+                    }
                     if self.current_char == Some('>') {
                         self.advance();
                         return Token::Arrow;
+                    }
+                    if self.current_char == Some('=') {
+                        self.advance();
+                        return Token::MinusEqual;
                     }
                     return Token::Minus;
                 }
@@ -305,6 +329,10 @@ impl Lexer {
                         self.advance();
                         return Token::DoubleStar;
                     }
+                    if self.current_char == Some('=') {
+                        self.advance();
+                        return Token::StarEqual;
+                    }
                     return Token::Star;
                 }
                 Some('/') => {
@@ -312,6 +340,10 @@ impl Lexer {
                     if self.current_char == Some('/') {
                         self.advance();
                         return Token::DoubleSlash;
+                    }
+                    if self.current_char == Some('=') {
+                        self.advance();
+                        return Token::SlashEqual;
                     }
                     return Token::Slash;
                 }

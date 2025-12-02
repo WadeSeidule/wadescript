@@ -293,6 +293,14 @@ impl TypeChecker {
                 Ok(())
             }
 
+            Statement::Assert { condition, .. } => {
+                let cond_type = self.check_expression(condition)?;
+                if cond_type != Type::Bool {
+                    return Err(format!("Assert condition must be bool, got {}", cond_type));
+                }
+                Ok(())
+            }
+
             Statement::Break | Statement::Continue | Statement::Pass | Statement::Import { .. } => Ok(()),
 
             Statement::Expression(expr) => {

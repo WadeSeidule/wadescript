@@ -4,8 +4,15 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::basic_block::BasicBlock;
 use inkwell::{AddressSpace, IntPredicate, FloatPredicate};
 use std::collections::HashMap;
+
+// Loop context for break/continue
+struct LoopContext<'ctx> {
+    continue_block: BasicBlock<'ctx>,
+    break_block: BasicBlock<'ctx>,
+}
 
 pub struct CodeGen<'ctx> {
     context: &'ctx Context,
@@ -17,6 +24,7 @@ pub struct CodeGen<'ctx> {
     class_types: HashMap<String, StructType<'ctx>>,
     class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
     current_class: Option<String>, // Track current class being compiled
+    loop_stack: Vec<LoopContext<'ctx>>, // Stack of loop contexts for break/continue
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -34,6 +42,7 @@ impl<'ctx> CodeGen<'ctx> {
             class_types: HashMap::new(),
             class_fields: HashMap::new(),
             current_class: None,
+            loop_stack: Vec::new(),
         }
     }
 
@@ -604,9 +613,20 @@ impl<'ctx> CodeGen<'ctx> {
                     .unwrap();
 
                 self.builder.position_at_end(body_block);
+
+                // Push loop context for break/continue
+                self.loop_stack.push(LoopContext {
+                    continue_block: cond_block,
+                    break_block: after_block,
+                });
+
                 for stmt in body {
                     self.compile_statement(stmt)?;
                 }
+
+                // Pop loop context
+                self.loop_stack.pop();
+
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
                     self.builder.build_unconditional_branch(cond_block).unwrap();
                 }
@@ -658,6 +678,7 @@ impl<'ctx> CodeGen<'ctx> {
                 // Create blocks for while loop
                 let cond_block = self.context.append_basic_block(function, "for_cond");
                 let body_block = self.context.append_basic_block(function, "for_body");
+                let incr_block = self.context.append_basic_block(function, "for_incr");
                 let after_block = self.context.append_basic_block(function, "for_end");
 
                 // Jump to condition
@@ -696,21 +717,32 @@ impl<'ctx> CodeGen<'ctx> {
                 // TODO: Infer proper element type from iterable
                 self.variables.insert(variable.clone(), (item_alloca, item_val.get_type(), Type::Int));
 
+                // Push loop context for break/continue (continue goes to increment block)
+                self.loop_stack.push(LoopContext {
+                    continue_block: incr_block,
+                    break_block: after_block,
+                });
+
                 // Compile body statements
                 for stmt in body {
                     self.compile_statement(stmt)?;
                 }
 
-                // Increment: idx = idx + 1
+                // Pop loop context
+                self.loop_stack.pop();
+
+                // Jump to increment block if no terminator
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(incr_block).unwrap();
+                }
+
+                // Increment block: idx = idx + 1
+                self.builder.position_at_end(incr_block);
                 let idx_loaded = self.builder.build_load(i64_type, idx_alloca, "idx").unwrap().into_int_value();
                 let one = i64_type.const_int(1, false);
                 let next_idx = self.builder.build_int_add(idx_loaded, one, "next_idx").unwrap();
                 self.builder.build_store(idx_alloca, next_idx).unwrap();
-
-                // Jump back to condition
-                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(cond_block).unwrap();
-                }
+                self.builder.build_unconditional_branch(cond_block).unwrap();
 
                 // After block
                 self.builder.position_at_end(after_block);
@@ -731,7 +763,60 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(())
             }
 
-            Statement::Break | Statement::Continue => {
+            Statement::Break => {
+                let loop_context = self.loop_stack.last()
+                    .ok_or("Break statement outside of loop")?;
+                self.builder.build_unconditional_branch(loop_context.break_block).unwrap();
+                Ok(())
+            }
+
+            Statement::Continue => {
+                let loop_context = self.loop_stack.last()
+                    .ok_or("Continue statement outside of loop")?;
+                self.builder.build_unconditional_branch(loop_context.continue_block).unwrap();
+                Ok(())
+            }
+
+            Statement::Assert { condition, message } => {
+                let function = self.current_function.ok_or("Assert outside of function")?;
+
+                // Evaluate condition
+                let cond_value = self.compile_expression(condition)?;
+                let cond_bool = cond_value.into_int_value();
+
+                // Create basic blocks
+                let fail_block = self.context.append_basic_block(function, "assert_fail");
+                let continue_block = self.context.append_basic_block(function, "assert_continue");
+
+                // Branch based on condition
+                self.builder.build_conditional_branch(cond_bool, continue_block, fail_block).unwrap();
+
+                // Fail block: print error and exit
+                self.builder.position_at_end(fail_block);
+
+                // Create error message
+                let error_msg = if let Some(msg) = message {
+                    format!("Assertion failed: {}\n", msg)
+                } else {
+                    "Assertion failed\n".to_string()
+                };
+                let error_str = self.builder.build_global_string_ptr(&error_msg, "assert_msg").unwrap();
+
+                // Call printf
+                let printf_fn = self.module.get_function("printf").unwrap();
+                self.builder.build_call(printf_fn, &[error_str.as_basic_value_enum().into()], "").unwrap();
+
+                // Call exit(1)
+                let i32_type = self.context.i32_type();
+                let exit_fn = self.module.get_function("exit").unwrap_or_else(|| {
+                    let exit_type = self.context.void_type().fn_type(&[i32_type.into()], false);
+                    self.module.add_function("exit", exit_type, None)
+                });
+                self.builder.build_call(exit_fn, &[i32_type.const_int(1, false).into()], "").unwrap();
+                self.builder.build_unreachable().unwrap();
+
+                // Continue block: assertion passed
+                self.builder.position_at_end(continue_block);
                 Ok(())
             }
 

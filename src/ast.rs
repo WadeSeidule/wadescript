@@ -81,6 +81,10 @@ pub enum Statement {
     Return(Option<Expression>),
     Break,
     Continue,
+    Assert {
+        condition: Expression,
+        message: Option<String>,
+    },
     Expression(Expression),
     Pass,
     Import {

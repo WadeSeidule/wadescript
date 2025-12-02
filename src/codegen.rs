@@ -1840,9 +1840,10 @@ impl<'ctx> CodeGen<'ctx> {
                 // F-string implementation: concatenate parts and formatted expressions
                 let i64_type = self.context.i64_type();
 
-                // Start with empty result string
+                // Start with a reasonably sized buffer to avoid buffer overflow
+                // Using 1024 bytes which should be enough for most f-strings
                 let malloc_fn = *self.functions.get("malloc").unwrap();
-                let initial_size = i64_type.const_int(1, false);
+                let initial_size = i64_type.const_int(1024, false);
                 let result_str = self.builder
                     .build_call(malloc_fn, &[initial_size.into()], "fstring_result")
                     .unwrap()
@@ -1851,7 +1852,7 @@ impl<'ctx> CodeGen<'ctx> {
                     .unwrap()
                     .into_pointer_value();
 
-                // Initialize with empty string
+                // Initialize with empty string (null terminator at start)
                 self.builder.build_store(result_str, i64_type.const_int(0, false)).unwrap();
 
                 let strcat_fn = *self.functions.get("strcat").unwrap();

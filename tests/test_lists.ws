@@ -3,30 +3,30 @@
 def main() -> int {
     # Empty list
     empty: list[int] = []
-    print_int(empty.length)  # 0
+    assert empty.length == 0
 
     # List literal with elements
     numbers: list[int] = [10, 20, 30, 40, 50]
-    print_int(numbers.length)  # 5
+    assert numbers.length == 5
 
     # Index access
-    print_int(numbers[0])  # 10
-    print_int(numbers[2])  # 30
-    print_int(numbers[4])  # 50
+    assert numbers[0] == 10
+    assert numbers[2] == 30
+    assert numbers[4] == 50
 
     # Push method
     numbers.push(60)
-    print_int(numbers.length)  # 6
-    print_int(numbers[5])  # 60
+    assert numbers.length == 6
+    assert numbers[5] == 60
 
     # Get method
     val: int = numbers.get(3)
-    print_int(val)  # 40
+    assert val == 40
 
     # Pop method
     last: int = numbers.pop()
-    print_int(last)  # 60
-    print_int(numbers.length)  # 5
+    assert last == 60
+    assert numbers.length == 5
 
     # Building list dynamically
     squares: list[int] = []
@@ -34,16 +34,19 @@ def main() -> int {
         sq: int = i * i
         squares.push(sq)
     }
-    print_int(squares.length)  # 5
-    print_int(squares[0])  # 0
-    print_int(squares[4])  # 16
+    assert squares.length == 5
+    assert squares[0] == 0
+    assert squares[1] == 1
+    assert squares[2] == 4
+    assert squares[3] == 9
+    assert squares[4] == 16
 
     # Iterate and sum
     sum: int = 0
     for s in squares {
         sum = sum + s
     }
-    print_int(sum)  # 30 (0+1+4+9+16)
+    assert sum == 30  # 0+1+4+9+16
 
     return 0
 }

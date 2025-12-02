@@ -5,9 +5,9 @@ def main() -> int {
     ages: dict[str, int] = {"Alice": 25, "Bob": 30, "Charlie": 35}
 
     # Test basic access
-    print_int(ages["Alice"])
-    print_int(ages["Bob"])
-    print_int(ages["Charlie"])
+    assert ages["Alice"] == 25
+    assert ages["Bob"] == 30
+    assert ages["Charlie"] == 35
 
     # Create empty dictionary
     scores: dict[str, int] = {}
@@ -18,13 +18,13 @@ def main() -> int {
     scores["Science"] = 92
 
     # Test access
-    print_int(scores["Math"])
-    print_int(scores["English"])
-    print_int(scores["Science"])
+    assert scores["Math"] == 95
+    assert scores["English"] == 88
+    assert scores["Science"] == 92
 
     # Update existing values
     scores["Math"] = 98
-    print_int(scores["Math"])
+    assert scores["Math"] == 98
 
     # Test with many entries (triggers rehashing)
     data: dict[str, int] = {}
@@ -45,10 +45,13 @@ def main() -> int {
     data["k15"] = 15
 
     # Verify all values after rehashing
-    print_int(data["k1"])
-    print_int(data["k5"])
-    print_int(data["k10"])
-    print_int(data["k15"])
+    assert data["k1"] == 1
+    assert data["k5"] == 5
+    assert data["k10"] == 10
+    assert data["k15"] == 15
+    # Check a few more to be thorough
+    assert data["k7"] == 7
+    assert data["k12"] == 12
 
     return 0
 }

@@ -166,13 +166,6 @@ case "$COMMAND" in
         for TEST_FILE in $TEST_FILES; do
             TOTAL_TESTS=$((TOTAL_TESTS + 1))
             TEST_NAME=$(basename "$TEST_FILE" .ws)
-            EXPECTED_FILE="$TESTS_DIR/$TEST_NAME.expected"
-
-            # Check if expected output file exists
-            if [ ! -f "$EXPECTED_FILE" ]; then
-                echo -e "${YELLOW}⚠ $TEST_NAME: No expected output file${NC}"
-                continue
-            fi
 
             # Compile the test
             set +e
@@ -182,6 +175,8 @@ case "$COMMAND" in
 
             if [ $COMPILE_EXIT -ne 0 ]; then
                 echo -e "${RED}✗ $TEST_NAME: Compilation failed${NC}"
+                echo -e "${YELLOW}  Error:${NC}"
+                echo "$COMPILE_OUTPUT" | head -5 | sed 's/^/    /'
                 FAILED_TESTS=$((FAILED_TESTS + 1))
                 FAILED_TEST_NAMES+=("$TEST_NAME (compilation failed)")
                 continue
@@ -196,35 +191,22 @@ case "$COMMAND" in
             # Clean up executable
             rm -f "./$TEST_NAME"
 
-            if [ $RUN_EXIT -ne 0 ]; then
-                echo -e "${RED}✗ $TEST_NAME: Runtime error (exit code $RUN_EXIT)${NC}"
-                FAILED_TESTS=$((FAILED_TESTS + 1))
-                FAILED_TEST_NAMES+=("$TEST_NAME (runtime error)")
-                continue
-            fi
-
-            # Compare output with expected
-            EXPECTED_OUTPUT=$(cat "$EXPECTED_FILE")
-
-            if [ "$TEST_OUTPUT" = "$EXPECTED_OUTPUT" ]; then
+            # Test passes if exit code is 0, fails otherwise
+            if [ $RUN_EXIT -eq 0 ]; then
                 echo -e "${GREEN}✓ $TEST_NAME${NC}"
                 PASSED_TESTS=$((PASSED_TESTS + 1))
             else
-                echo -e "${RED}✗ $TEST_NAME: Output mismatch${NC}"
+                echo -e "${RED}✗ $TEST_NAME: Test failed (exit code $RUN_EXIT)${NC}"
+                # Show output for debugging
+                if [ -n "$TEST_OUTPUT" ]; then
+                    echo -e "${YELLOW}  Output:${NC}"
+                    echo "$TEST_OUTPUT" | head -10 | sed 's/^/    /'
+                    if [ $(echo "$TEST_OUTPUT" | wc -l) -gt 10 ]; then
+                        echo "    ..."
+                    fi
+                fi
                 FAILED_TESTS=$((FAILED_TESTS + 1))
-                FAILED_TEST_NAMES+=("$TEST_NAME (output mismatch)")
-
-                # Show diff if verbose
-                echo -e "${YELLOW}  Expected:${NC}"
-                echo "$EXPECTED_OUTPUT" | head -3 | sed 's/^/    /'
-                if [ $(echo "$EXPECTED_OUTPUT" | wc -l) -gt 3 ]; then
-                    echo "    ..."
-                fi
-                echo -e "${YELLOW}  Got:${NC}"
-                echo "$TEST_OUTPUT" | head -3 | sed 's/^/    /'
-                if [ $(echo "$TEST_OUTPUT" | wc -l) -gt 3 ]; then
-                    echo "    ..."
-                fi
+                FAILED_TEST_NAMES+=("$TEST_NAME (exit code $RUN_EXIT)")
             fi
         done
 

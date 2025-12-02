@@ -1,16 +1,20 @@
 # Test: Import system
 
-import "test_helpers"
+import "helpers"
 
 def main() -> int {
     # Test imported functions
-    print_int(test_helpers.double(5))   # 10
-    print_int(test_helpers.triple(4))   # 12
+    assert helpers.double(5) == 10
+    assert helpers.triple(4) == 12
 
     # Test with variables
     x: int = 7
-    print_int(test_helpers.double(x))   # 14
-    print_int(test_helpers.triple(x))   # 21
+    assert helpers.double(x) == 14
+    assert helpers.triple(x) == 21
+
+    # Test with expressions
+    assert helpers.double(3 + 2) == 10
+    assert helpers.triple(2 * 2) == 12
 
     return 0
 }

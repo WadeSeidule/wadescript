@@ -1,58 +1,42 @@
-# Test: Integration - Multiple features working together
+# Test: Integration test combining multiple features
 
-def is_prime(n: int) -> bool {
-    if n <= 1 {
-        return False
+def sum_list(numbers: list[int]) -> int {
+    total: int = 0
+    for num in numbers {
+        total = total + num
     }
-    if n == 2 {
-        return True
-    }
-
-    i: int = 2
-    while i * i <= n {
-        if n % i == 0 {
-            return False
-        }
-        i = i + 1
-    }
-    return True
+    return total
 }
 
 def main() -> int {
-    # Build list of primes using multiple features
-    primes: list[int] = []
+    # Lists and functions
+    nums: list[int] = [1, 2, 3, 4, 5]
+    assert sum_list(nums) == 15
 
-    # Use for loop with range to check numbers
-    for num in range(20) {
-        if is_prime(num) {
-            primes.push(num)
+    # Dictionaries and loops
+    scores: dict[str, int] = {"Alice": 90, "Bob": 85, "Charlie": 95}
+    assert scores["Alice"] == 90
+    assert scores["Bob"] == 85
+    assert scores["Charlie"] == 95
+
+    # Complex logic
+    evens: list[int] = []
+    for i in range(10) {
+        if i % 2 == 0 {
+            evens.push(i)
         }
     }
+    assert evens.length == 5
+    assert sum_list(evens) == 20  # 0+2+4+6+8
 
-    # Print count
-    print_int(primes.length)  # 8
-
-    # Print all primes
-    for p in primes {
-        print_int(p)  # 2 3 5 7 11 13 17 19
-    }
-
-    # Sum the primes
-    sum: int = 0
-    for p in primes {
-        sum = sum + p
-    }
-    print_int(sum)  # 77
-
-    # Test list operations
-    last_prime: int = primes.pop()
-    print_int(last_prime)  # 19
-    print_int(primes.length)  # 7
-
-    # Test indexing
-    first: int = primes[0]
-    second: int = primes[1]
-    print_int(first + second)  # 5
+    # Build a dict from list
+    lookup: dict[str, int] = {}
+    lookup["zero"] = 0
+    lookup["one"] = 1
+    lookup["two"] = 2
+    assert lookup["zero"] == 0
+    assert lookup["one"] == 1
+    assert lookup["two"] == 2
 
     return 0
 }

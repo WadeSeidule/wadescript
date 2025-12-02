@@ -229,34 +229,59 @@ make fmt         # Format code before committing
 
 ### Testing
 
-WadeScript has a comprehensive test suite in the `tests/` directory.
+WadeScript has a comprehensive assertion-based test suite in the `tests/` directory.
 
 **Run all tests:**
 ```bash
+make test
+# or
 ./ws test
 ```
 
-**Test file structure:**
-- Each test: `tests/test_*.ws`
-- Expected output: `tests/test_*.expected`
-- Test runner compiles, runs, and compares output
+**Test system:**
+- All test files match `tests/test_*.ws`
+- Tests use `assert` statements to verify correctness
+- Tests pass if they exit with code 0, fail otherwise
+- No need for `.expected` output files
 
 **Adding a new test:**
-1. Create `tests/test_feature.ws` with test code
-2. Run it: `./ws run tests/test_feature.ws`
-3. Save output to `tests/test_feature.expected`
-4. Verify with `./ws test`
+1. Create `tests/test_feature.ws` with test code using assertions:
+```wadescript
+def main() -> int {
+    # Test your feature
+    result: int = my_function(5)
+    assert result == 10, "Expected 10"
+
+    # More assertions
+    assert condition1
+    assert condition2
+
+    return 0  # Test passes
+}
+```
+2. Run it: `./ws run tests/test_feature.ws` or `make test`
+3. Test passes if all assertions succeed and program exits with 0
+
+**Writing good tests:**
+- Use descriptive assertion messages: `assert x > 0, "x must be positive"`
+- Test edge cases and boundary conditions
+- Group related assertions together
+- Use comments to explain what's being tested
 
 **Current test coverage:**
 - Basic types (int, float, bool, str)
+- Arithmetic and comparison operators
 - Functions and recursion
 - Control flow (if/elif/else, while)
-- For loops and range()
-- Lists (creation, indexing, methods)
-- Dictionaries (hash table operations)
-- Comparisons and logical operators
-- Module imports
-- Integration tests
+- For loops with range() and iterables
+- Break and continue statements
+- Lists (creation, indexing, methods, iteration)
+- Dictionaries (hash table operations, rehashing)
+- Module imports and namespacing
+- Compound assignments (+=, -=, *=, /=)
+- Increment/decrement operators (++, --)
+- Assert statements
+- Integration tests combining multiple features
 
 ### Debugging
 

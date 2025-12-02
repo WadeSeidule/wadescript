@@ -1,30 +1,47 @@
-# Test: Comparison and logical operators
+# Test: Comparison operators
 
 def main() -> int {
     # Integer comparisons
-    print_bool(10 == 10)  # True
-    print_bool(10 != 5)   # True
-    print_bool(10 > 5)    # True
-    print_bool(10 < 5)    # False
-    print_bool(10 >= 10)  # True
-    print_bool(10 <= 10)  # True
+    assert 5 == 5
+    assert not (5 == 6)
+    assert 5 != 6
+    assert not (5 != 5)
+    assert 3 < 5
+    assert not (5 < 3)
+    assert 5 > 3
+    assert not (3 > 5)
+    assert 5 <= 5
+    assert 3 <= 5
+    assert not (6 <= 5)
+    assert 5 >= 5
+    assert 5 >= 3
+    assert not (3 >= 5)
+
+    # Float comparisons
+    assert 3.5 > 2.0
+    assert 2.0 < 3.5
+    assert 3.5 >= 3.5
+    assert 3.5 <= 3.5
+
+    # Boolean comparisons
+    assert True == True
+    assert False == False
+    assert True != False
 
     # Logical operators
-    print_bool(True and True)    # True
-    print_bool(True and False)   # False
-    print_bool(False or True)    # True
-    print_bool(False or False)   # False
-    print_bool(not True)         # False
-    print_bool(not False)        # True
+    assert True and True
+    assert not (True and False)
+    assert not (False and True)
+    assert not (False and False)
+    assert True or False
+    assert False or True
+    assert True or True
+    assert not (False or False)
 
-    # Combined conditions
-    x: int = 15
-    print_bool(x > 10 and x < 20)  # True
-    print_bool(x < 10 or x > 20)   # False
-
-    # Negation
-    a: int = 5
-    print_int(-a)  # -5
+    # Complex expressions
+    assert (5 > 3) and (10 < 20)
+    assert (5 < 3) or (10 < 20)
+    assert not (5 < 3)
 
     return 0
 }

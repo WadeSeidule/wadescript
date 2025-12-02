@@ -1,45 +1,53 @@
-# Test: Control flow - if/elif/else and while loops
+# Test: Control flow (if/elif/else, while)
 
 def main() -> int {
-    # If statements
+    # Simple if
     x: int = 10
     if x > 5 {
-        print_str("greater")  # greater
+        x = x + 1
     }
+    assert x == 11
 
-    if x < 5 {
-        print_str("less")
+    # If-else
+    y: int = 3
+    if y > 5 {
+        y = 0
     } else {
-        print_str("not_less")  # not_less
+        y = y + 10
     }
+    assert y == 13
 
-    # Elif
-    score: int = 75
-    if score >= 90 {
-        print_str("A")
-    } elif score >= 80 {
-        print_str("B")
-    } elif score >= 70 {
-        print_str("C")  # C
+    # If-elif-else
+    z: int = 5
+    result: int = 0
+    if z < 3 {
+        result = 1
+    } elif z < 7 {
+        result = 2
     } else {
-        print_str("F")
+        result = 3
     }
+    assert result == 2
 
     # While loop
-    i: int = 0
-    while i < 5 {
-        print_int(i)  # 0 1 2 3 4
-        i = i + 1
-    }
-
-    # While with break condition (manual break via conditional)
-    counter: int = 0
+    count: int = 0
     sum: int = 0
-    while counter < 10 {
-        sum = sum + counter
-        counter = counter + 1
+    while count < 5 {
+        sum = sum + count
+        count = count + 1
     }
-    print_int(sum)  # 45
+    assert sum == 10  # 0+1+2+3+4
+    assert count == 5
+
+    # Nested if
+    a: int = 10
+    b: int = 20
+    if a > 5 {
+        if b > 15 {
+            a = a + b
+        }
+    }
+    assert a == 30
 
     return 0
 }

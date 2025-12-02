@@ -1,37 +1,40 @@
-# Test: For loops with lists and range
+# Test: For loops with range()
 
 def main() -> int {
-    # For loop with list literal
-    numbers: list[int] = [1, 2, 3, 4, 5]
-    for num in numbers {
-        print_int(num)  # 1 2 3 4 5
-    }
-
-    # For loop with range
-    for i in range(5) {
-        print_int(i)  # 0 1 2 3 4
-    }
-
-    # Computing sum with for loop
+    # Basic for loop with range
     sum: int = 0
-    for n in numbers {
-        sum = sum + n
+    for i in range(5) {
+        sum = sum + i
     }
-    print_int(sum)  # 15
+    assert sum == 10  # 0+1+2+3+4
 
-    # For loop with range computation
+    # For loop with list
+    numbers: list[int] = [10, 20, 30]
     total: int = 0
-    for i in range(10) {
-        total = total + i
+    for num in numbers {
+        total = total + num
     }
-    print_int(total)  # 45
+    assert total == 60
 
-    # Empty list iteration
-    empty: list[int] = []
-    for item in empty {
-        print_int(item)  # Should not print
+    # Nested for loops
+    product: int = 0
+    for i in range(3) {
+        for j in range(3) {
+            product = product + 1
+        }
     }
-    print_str("done")  # done
+    assert product == 9  # 3 * 3
+
+    # Building a list in a loop
+    squares: list[int] = []
+    for i in range(4) {
+        squares.push(i * i)
+    }
+    assert squares.length == 4
+    assert squares[0] == 0
+    assert squares[1] == 1
+    assert squares[2] == 4
+    assert squares[3] == 9
 
     return 0
 }

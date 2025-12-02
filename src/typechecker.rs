@@ -907,3 +907,615 @@ impl TypeChecker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    fn typecheck_source(source: &str) -> Result<(), String> {
+        let lexer = Lexer::new(source.to_string());
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse();
+        let mut typechecker = TypeChecker::new();
+        typechecker.check_program(&program)
+    }
+
+    #[test]
+    fn test_variable_declaration_int() {
+        assert!(typecheck_source("x: int = 42").is_ok());
+    }
+
+    #[test]
+    fn test_variable_declaration_float() {
+        assert!(typecheck_source("x: float = 3.14").is_ok());
+    }
+
+    #[test]
+    fn test_variable_declaration_bool() {
+        assert!(typecheck_source("x: bool = True").is_ok());
+    }
+
+    #[test]
+    fn test_variable_declaration_str() {
+        assert!(typecheck_source(r#"x: str = "hello""#).is_ok());
+    }
+
+    #[test]
+    fn test_type_mismatch_int_str() {
+        let result = typecheck_source(r#"x: int = "hello""#);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_float_accepts_int() {
+        // Float should accept Int (type compatibility)
+        assert!(typecheck_source("x: float = 42").is_ok());
+    }
+
+    #[test]
+    fn test_undefined_variable() {
+        let result = typecheck_source("y = x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Undefined variable"));
+    }
+
+    #[test]
+    fn test_function_definition() {
+        let source = r#"
+def add(a: int, b: int) -> int {
+    return a + b
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_function_call() {
+        let source = r#"
+def add(a: int, b: int) -> int {
+    return a + b
+}
+def main() -> int {
+    x: int = add(5, 10)
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_function_call_wrong_arg_count() {
+        let source = r#"
+def add(a: int, b: int) -> int {
+    return a + b
+}
+def main() -> int {
+    x: int = add(5)
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expects 2 arguments"));
+    }
+
+    #[test]
+    fn test_function_call_wrong_arg_type() {
+        let source = r#"
+def add(a: int, b: int) -> int {
+    return a + b
+}
+def main() -> int {
+    x: int = add(5, "hello")
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Argument 2"));
+    }
+
+    #[test]
+    fn test_return_type_mismatch() {
+        let source = r#"
+def get_number() -> int {
+    return "hello"
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Return type mismatch"));
+    }
+
+    #[test]
+    fn test_binary_arithmetic() {
+        let source = r#"
+def main() -> int {
+    a: int = 10 + 5
+    b: int = 10 - 5
+    c: int = 10 * 5
+    d: int = 10 / 5
+    e: int = 10 % 5
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_binary_arithmetic_float() {
+        let source = r#"
+def main() -> int {
+    a: float = 10.5 + 5.5
+    b: float = 10.0 * 2.0
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_binary_arithmetic_mixed() {
+        // Int + Float should result in Float
+        let source = r#"
+def main() -> int {
+    a: float = 10 + 5.5
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        let source = r#"
+def main() -> int {
+    a: bool = 10 == 5
+    b: bool = 10 != 5
+    c: bool = 10 < 5
+    d: bool = 10 > 5
+    e: bool = 10 <= 5
+    f: bool = 10 >= 5
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_logical_operators() {
+        let source = r#"
+def main() -> int {
+    a: bool = True and False
+    b: bool = True or False
+    c: bool = not True
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_logical_operators_wrong_type() {
+        let source = r#"
+def main() -> int {
+    a: bool = 10 and 5
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("bool operands"));
+    }
+
+    #[test]
+    fn test_if_condition_must_be_bool() {
+        let source = r#"
+def main() -> int {
+    if 10 {
+        return 1
+    }
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("If condition must be bool"));
+    }
+
+    #[test]
+    fn test_while_condition_must_be_bool() {
+        let source = r#"
+def main() -> int {
+    while 10 {
+        break
+    }
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("While condition must be bool"));
+    }
+
+    #[test]
+    fn test_assert_condition_must_be_bool() {
+        let source = r#"
+def main() -> int {
+    assert 10
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Assert condition must be bool"));
+    }
+
+    #[test]
+    fn test_list_literal() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3, 4, 5]
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_list_literal_inconsistent_types() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, "hello"]
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Inconsistent types"));
+    }
+
+    #[test]
+    fn test_list_index_access() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    x: int = nums[0]
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_list_index_assignment() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    nums[0] = 42
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_list_push_method() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    nums.push(4)
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_list_push_wrong_type() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    nums.push("hello")
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("type mismatch"));
+    }
+
+    #[test]
+    fn test_list_length_property() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    len: int = nums.length
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_dict_literal() {
+        let source = r#"
+def main() -> int {
+    ages: dict[str, int] = {"Alice": 25, "Bob": 30}
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_dict_inconsistent_key_types() {
+        let source = r#"
+def main() -> int {
+    ages: dict[str, int] = {"Alice": 25, 42: 30}
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Inconsistent key types"));
+    }
+
+    #[test]
+    fn test_dict_index_access() {
+        let source = r#"
+def main() -> int {
+    ages: dict[str, int] = {"Alice": 25}
+    x: int = ages["Alice"]
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_dict_index_assignment() {
+        let source = r#"
+def main() -> int {
+    ages: dict[str, int] = {}
+    ages["Alice"] = 25
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_for_loop_over_list() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = [1, 2, 3]
+    for n in nums {
+        x: int = n
+    }
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_for_loop_over_non_iterable() {
+        let source = r#"
+def main() -> int {
+    for n in 42 {
+        pass
+    }
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot iterate"));
+    }
+
+    #[test]
+    fn test_class_definition() {
+        let source = r#"
+class Person {
+    name: str
+    age: int
+
+    def greet(self: Person) -> void {
+        pass
+    }
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_class_constructor() {
+        let source = r#"
+class Person {
+    name: str
+    age: int
+}
+def main() -> int {
+    p: Person = Person("Alice", 25)
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_class_constructor_wrong_args() {
+        let source = r#"
+class Person {
+    name: str
+    age: int
+}
+def main() -> int {
+    p: Person = Person("Alice")
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expects 2 arguments"));
+    }
+
+    #[test]
+    fn test_class_field_access() {
+        let source = r#"
+class Person {
+    name: str
+    age: int
+}
+def main() -> int {
+    p: Person = Person("Alice", 25)
+    n: str = p.name
+    a: int = p.age
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_class_method_call() {
+        let source = r#"
+class Person {
+    name: str
+
+    def greet(self: Person) -> void {
+        pass
+    }
+}
+def main() -> int {
+    p: Person = Person("Alice")
+    p.greet()
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_builtin_functions() {
+        let source = r#"
+def main() -> int {
+    print_int(42)
+    print_float(3.14)
+    print_str("hello")
+    print_bool(True)
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_range_function() {
+        let source = r#"
+def main() -> int {
+    nums: list[int] = range(10)
+    for i in range(5) {
+        print_int(i)
+    }
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_fstring() {
+        let source = r#"
+def main() -> int {
+    name: str = "Alice"
+    age: int = 25
+    msg: str = f"Name: {name}, Age: {age}"
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_unary_not() {
+        let source = r#"
+def main() -> int {
+    a: bool = not True
+    b: bool = not False
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_unary_negate() {
+        let source = r#"
+def main() -> int {
+    a: int = -5
+    b: float = -3.14
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_power_operator() {
+        let source = r#"
+def main() -> int {
+    a: int = 2 ** 3
+    b: float = 2.0 ** 3.0
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_string_concatenation() {
+        let source = r#"
+def main() -> int {
+    s: str = "Hello" + " " + "World"
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_scope_visibility() {
+        let source = r#"
+def main() -> int {
+    x: int = 10
+    if True {
+        y: int = 20
+        z: int = x + y
+    }
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_scope_variable_not_visible() {
+        let source = r#"
+def main() -> int {
+    if True {
+        x: int = 10
+    }
+    y: int = x
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Undefined variable"));
+    }
+}

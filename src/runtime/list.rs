@@ -106,3 +106,141 @@ pub extern "C" fn list_set_i64(list: *mut List, index: i64, value: i64) {
         *list_ref.data.offset(index as isize) = value;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_list() -> Box<List> {
+        Box::new(List {
+            data: std::ptr::null_mut(),
+            length: 0,
+            capacity: 0,
+        })
+    }
+
+    #[test]
+    fn test_list_push_and_get() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Push some values
+        list_push_i64(list_ptr, 10);
+        list_push_i64(list_ptr, 20);
+        list_push_i64(list_ptr, 30);
+
+        // Check values
+        assert_eq!(list_get_i64(list_ptr, 0), 10);
+        assert_eq!(list_get_i64(list_ptr, 1), 20);
+        assert_eq!(list_get_i64(list_ptr, 2), 30);
+        assert_eq!(list.length, 3);
+    }
+
+    #[test]
+    fn test_list_pop() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Push values
+        list_push_i64(list_ptr, 100);
+        list_push_i64(list_ptr, 200);
+        list_push_i64(list_ptr, 300);
+
+        // Pop and check
+        assert_eq!(list_pop_i64(list_ptr), 300);
+        assert_eq!(list.length, 2);
+        assert_eq!(list_pop_i64(list_ptr), 200);
+        assert_eq!(list.length, 1);
+        assert_eq!(list_pop_i64(list_ptr), 100);
+        assert_eq!(list.length, 0);
+    }
+
+    #[test]
+    fn test_list_set() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Push values
+        list_push_i64(list_ptr, 1);
+        list_push_i64(list_ptr, 2);
+        list_push_i64(list_ptr, 3);
+
+        // Set and verify
+        list_set_i64(list_ptr, 1, 99);
+        assert_eq!(list_get_i64(list_ptr, 0), 1);
+        assert_eq!(list_get_i64(list_ptr, 1), 99);
+        assert_eq!(list_get_i64(list_ptr, 2), 3);
+    }
+
+    #[test]
+    fn test_list_capacity_growth() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Initial capacity should be 0
+        assert_eq!(list.capacity, 0);
+
+        // Push first element, should allocate capacity of 4
+        list_push_i64(list_ptr, 1);
+        assert_eq!(list.capacity, 4);
+        assert_eq!(list.length, 1);
+
+        // Push more elements
+        list_push_i64(list_ptr, 2);
+        list_push_i64(list_ptr, 3);
+        list_push_i64(list_ptr, 4);
+        assert_eq!(list.capacity, 4);
+        assert_eq!(list.length, 4);
+
+        // Push one more, should double capacity
+        list_push_i64(list_ptr, 5);
+        assert_eq!(list.capacity, 8);
+        assert_eq!(list.length, 5);
+    }
+
+    #[test]
+    fn test_list_out_of_bounds() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        list_push_i64(list_ptr, 10);
+
+        // Out of bounds access should return 0
+        assert_eq!(list_get_i64(list_ptr, -1), 0);
+        assert_eq!(list_get_i64(list_ptr, 5), 0);
+
+        // Out of bounds set should be no-op
+        list_set_i64(list_ptr, -1, 99);
+        list_set_i64(list_ptr, 5, 99);
+        assert_eq!(list.length, 1); // Should not have changed
+    }
+
+    #[test]
+    fn test_list_pop_empty() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Popping from empty list should return 0
+        assert_eq!(list_pop_i64(list_ptr), 0);
+        assert_eq!(list.length, 0);
+    }
+
+    #[test]
+    fn test_list_large_capacity() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        // Push many elements to test multiple capacity doublings
+        for i in 0..100 {
+            list_push_i64(list_ptr, i);
+        }
+
+        assert_eq!(list.length, 100);
+        assert!(list.capacity >= 100);
+
+        // Verify all elements
+        for i in 0..100 {
+            assert_eq!(list_get_i64(list_ptr, i), i);
+        }
+    }
+}

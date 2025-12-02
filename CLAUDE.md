@@ -26,6 +26,7 @@ The project includes a comprehensive Makefile that handles building both the com
 make              # Build compiler + runtime (debug mode)
 make release      # Build optimized release version
 make test         # Run the test suite
+make test-rust    # Run the rust test suite (compiler + runtime)
 make examples     # Compile all example programs
 make clean        # Clean debug build artifacts
 make clean-all    # Clean all build artifacts (debug + release)

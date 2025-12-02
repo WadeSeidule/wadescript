@@ -234,3 +234,191 @@ pub extern "C" fn dict_has(dict: *const Dict, key: *const u8) -> i32 {
         0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn test_dict_create() {
+        unsafe {
+            let dict = dict_create();
+            assert!(!dict.is_null());
+
+            let dict_ref = &*dict;
+            assert_eq!(dict_ref.capacity, INITIAL_CAPACITY);
+            assert_eq!(dict_ref.length, 0);
+        }
+    }
+
+    #[test]
+    fn test_dict_set_and_get() {
+        unsafe {
+            let dict = dict_create();
+
+            let key1 = CString::new("name").unwrap();
+            let key2 = CString::new("age").unwrap();
+            let key3 = CString::new("score").unwrap();
+
+            // Set values
+            dict_set(dict, key1.as_ptr() as *const u8, 100);
+            dict_set(dict, key2.as_ptr() as *const u8, 25);
+            dict_set(dict, key3.as_ptr() as *const u8, 95);
+
+            // Get values
+            assert_eq!(dict_get(dict, key1.as_ptr() as *const u8), 100);
+            assert_eq!(dict_get(dict, key2.as_ptr() as *const u8), 25);
+            assert_eq!(dict_get(dict, key3.as_ptr() as *const u8), 95);
+
+            // Check length
+            let dict_ref = &*dict;
+            assert_eq!(dict_ref.length, 3);
+        }
+    }
+
+    #[test]
+    fn test_dict_update_existing_key() {
+        unsafe {
+            let dict = dict_create();
+            let key = CString::new("value").unwrap();
+
+            // Set initial value
+            dict_set(dict, key.as_ptr() as *const u8, 10);
+            assert_eq!(dict_get(dict, key.as_ptr() as *const u8), 10);
+
+            // Update value
+            dict_set(dict, key.as_ptr() as *const u8, 20);
+            assert_eq!(dict_get(dict, key.as_ptr() as *const u8), 20);
+
+            // Length should still be 1
+            let dict_ref = &*dict;
+            assert_eq!(dict_ref.length, 1);
+        }
+    }
+
+    #[test]
+    fn test_dict_has() {
+        let dict = dict_create();
+
+        let key1 = CString::new("exists").unwrap();
+        let key2 = CString::new("missing").unwrap();
+
+        // Add one key
+        dict_set(dict, key1.as_ptr() as *const u8, 42);
+
+        // Check existence
+        assert_eq!(dict_has(dict, key1.as_ptr() as *const u8), 1);
+        assert_eq!(dict_has(dict, key2.as_ptr() as *const u8), 0);
+    }
+
+    #[test]
+    fn test_dict_get_missing_key() {
+        let dict = dict_create();
+        let key = CString::new("nonexistent").unwrap();
+
+        // Get missing key should return 0
+        assert_eq!(dict_get(dict, key.as_ptr() as *const u8), 0);
+    }
+
+    #[test]
+    fn test_dict_rehashing() {
+        unsafe {
+            let dict = dict_create();
+            let dict_ref = &*dict;
+
+            // Initial capacity should be INITIAL_CAPACITY (16)
+            let initial_capacity = dict_ref.capacity;
+            assert_eq!(initial_capacity, INITIAL_CAPACITY);
+
+            // Add enough items to trigger rehashing (load factor = 0.75)
+            // Need more than 16 * 0.75 = 12 items
+            for i in 0..15 {
+                let key = CString::new(format!("key{}", i)).unwrap();
+                dict_set(dict, key.as_ptr() as *const u8, i);
+            }
+
+            // Capacity should have doubled
+            let dict_ref = &*dict;
+            assert_eq!(dict_ref.capacity, initial_capacity * 2);
+            assert_eq!(dict_ref.length, 15);
+
+            // Verify all keys still exist
+            for i in 0..15 {
+                let key = CString::new(format!("key{}", i)).unwrap();
+                assert_eq!(dict_get(dict, key.as_ptr() as *const u8), i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_dict_collision_handling() {
+        unsafe {
+            let dict = dict_create();
+
+            // Add many items to increase chance of collisions
+            for i in 0..20 {
+                let key = CString::new(format!("item_{}", i)).unwrap();
+                dict_set(dict, key.as_ptr() as *const u8, i * 10);
+            }
+
+            // Verify all items are accessible
+            for i in 0..20 {
+                let key = CString::new(format!("item_{}", i)).unwrap();
+                assert_eq!(dict_get(dict, key.as_ptr() as *const u8), i * 10);
+                assert_eq!(dict_has(dict, key.as_ptr() as *const u8), 1);
+            }
+
+            let dict_ref = &*dict;
+            assert_eq!(dict_ref.length, 20);
+        }
+    }
+
+    #[test]
+    fn test_dict_string_keys() {
+        let dict = dict_create();
+
+        let keys = vec!["hello", "world", "rust", "wadescript", "test"];
+        let values = vec![1, 2, 3, 4, 5];
+
+        // Insert all
+        for (key_str, &value) in keys.iter().zip(values.iter()) {
+            let key = CString::new(*key_str).unwrap();
+            dict_set(dict, key.as_ptr() as *const u8, value);
+        }
+
+        // Verify all
+        for (key_str, &value) in keys.iter().zip(values.iter()) {
+            let key = CString::new(*key_str).unwrap();
+            assert_eq!(dict_get(dict, key.as_ptr() as *const u8), value);
+        }
+    }
+
+    #[test]
+    fn test_dict_empty_string_key() {
+        let dict = dict_create();
+        let key = CString::new("").unwrap();
+
+        dict_set(dict, key.as_ptr() as *const u8, 999);
+        assert_eq!(dict_get(dict, key.as_ptr() as *const u8), 999);
+        assert_eq!(dict_has(dict, key.as_ptr() as *const u8), 1);
+    }
+
+    #[test]
+    fn test_hash_string_consistency() {
+        unsafe {
+            let key1 = CString::new("test").unwrap();
+            let key2 = CString::new("test").unwrap();
+
+            // Same string should produce same hash
+            let hash1 = hash_string(key1.as_ptr() as *const u8);
+            let hash2 = hash_string(key2.as_ptr() as *const u8);
+            assert_eq!(hash1, hash2);
+
+            // Different strings should (likely) produce different hashes
+            let key3 = CString::new("different").unwrap();
+            let hash3 = hash_string(key3.as_ptr() as *const u8);
+            assert_ne!(hash1, hash3);
+        }
+    }
+}

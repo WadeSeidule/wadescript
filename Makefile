@@ -107,6 +107,11 @@ test: debug
 	@echo "$(BLUE)Running test suite...$(NC)"
 	@./ws test
 
+.PHONY: test-rust
+test-rust:
+	@echo "$(BLUE)Running Rust test suite...$(NC)"
+	@cargo test
+
 # Compile all examples (skip library files)
 .PHONY: examples
 examples: debug

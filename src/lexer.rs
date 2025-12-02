@@ -443,3 +443,189 @@ impl Lexer {
         tokens
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_integer_literals() {
+        let mut lexer = Lexer::new("42 0 123 9999".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::IntLiteral(42));
+        assert_eq!(tokens[1], Token::IntLiteral(0));
+        assert_eq!(tokens[2], Token::IntLiteral(123));
+        assert_eq!(tokens[3], Token::IntLiteral(9999));
+    }
+
+    #[test]
+    fn test_float_literals() {
+        let mut lexer = Lexer::new("3.14 0.5 123.456".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::FloatLiteral(3.14));
+        assert_eq!(tokens[1], Token::FloatLiteral(0.5));
+        assert_eq!(tokens[2], Token::FloatLiteral(123.456));
+    }
+
+    #[test]
+    fn test_string_literals() {
+        let mut lexer = Lexer::new(r#""hello" "world" "test string""#.to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::StringLiteral("hello".to_string()));
+        assert_eq!(tokens[1], Token::StringLiteral("world".to_string()));
+        assert_eq!(tokens[2], Token::StringLiteral("test string".to_string()));
+    }
+
+    #[test]
+    fn test_identifiers() {
+        let mut lexer = Lexer::new("foo bar x y123 _private".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Identifier("foo".to_string()));
+        assert_eq!(tokens[1], Token::Identifier("bar".to_string()));
+        assert_eq!(tokens[2], Token::Identifier("x".to_string()));
+        assert_eq!(tokens[3], Token::Identifier("y123".to_string()));
+        assert_eq!(tokens[4], Token::Identifier("_private".to_string()));
+    }
+
+    #[test]
+    fn test_keywords() {
+        let mut lexer = Lexer::new("def class if else while for return break continue assert".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Def);
+        assert_eq!(tokens[1], Token::Class);
+        assert_eq!(tokens[2], Token::If);
+        assert_eq!(tokens[3], Token::Else);
+        assert_eq!(tokens[4], Token::While);
+        assert_eq!(tokens[5], Token::For);
+        assert_eq!(tokens[6], Token::Return);
+        assert_eq!(tokens[7], Token::Break);
+        assert_eq!(tokens[8], Token::Continue);
+        assert_eq!(tokens[9], Token::Assert);
+    }
+
+    #[test]
+    fn test_operators() {
+        let mut lexer = Lexer::new("+ - * / % == != < > <= >= and or not".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Plus);
+        assert_eq!(tokens[1], Token::Minus);
+        assert_eq!(tokens[2], Token::Star);
+        assert_eq!(tokens[3], Token::Slash);
+        assert_eq!(tokens[4], Token::Percent);
+        assert_eq!(tokens[5], Token::DoubleEqual);
+        assert_eq!(tokens[6], Token::NotEqual);
+        assert_eq!(tokens[7], Token::Less);
+        assert_eq!(tokens[8], Token::Greater);
+        assert_eq!(tokens[9], Token::LessEqual);
+        assert_eq!(tokens[10], Token::GreaterEqual);
+        assert_eq!(tokens[11], Token::And);
+        assert_eq!(tokens[12], Token::Or);
+        assert_eq!(tokens[13], Token::Not);
+    }
+
+    #[test]
+    fn test_compound_operators() {
+        let mut lexer = Lexer::new("+= -= *= /= ++ --".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::PlusEqual);
+        assert_eq!(tokens[1], Token::MinusEqual);
+        assert_eq!(tokens[2], Token::StarEqual);
+        assert_eq!(tokens[3], Token::SlashEqual);
+        assert_eq!(tokens[4], Token::PlusPlus);
+        assert_eq!(tokens[5], Token::MinusMinus);
+    }
+
+    #[test]
+    fn test_delimiters() {
+        let mut lexer = Lexer::new("( ) { } [ ] , : ; -> .".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::LeftParen);
+        assert_eq!(tokens[1], Token::RightParen);
+        assert_eq!(tokens[2], Token::LeftBrace);
+        assert_eq!(tokens[3], Token::RightBrace);
+        assert_eq!(tokens[4], Token::LeftBracket);
+        assert_eq!(tokens[5], Token::RightBracket);
+        assert_eq!(tokens[6], Token::Comma);
+        assert_eq!(tokens[7], Token::Colon);
+        assert_eq!(tokens[8], Token::Semicolon);
+        assert_eq!(tokens[9], Token::Arrow);
+        assert_eq!(tokens[10], Token::Dot);
+    }
+
+    #[test]
+    fn test_comments() {
+        let mut lexer = Lexer::new("x # this is a comment\ny".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Identifier("x".to_string()));
+        assert_eq!(tokens[1], Token::Newline);
+        assert_eq!(tokens[2], Token::Identifier("y".to_string()));
+    }
+
+    #[test]
+    fn test_newlines() {
+        let mut lexer = Lexer::new("x\n\ny\n".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Identifier("x".to_string()));
+        assert_eq!(tokens[1], Token::Newline);
+        assert_eq!(tokens[2], Token::Newline);
+        assert_eq!(tokens[3], Token::Identifier("y".to_string()));
+        assert_eq!(tokens[4], Token::Newline);
+    }
+
+    #[test]
+    fn test_simple_expression() {
+        let mut lexer = Lexer::new("x = 10 + 5".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Identifier("x".to_string()));
+        assert_eq!(tokens[1], Token::Equal);
+        assert_eq!(tokens[2], Token::IntLiteral(10));
+        assert_eq!(tokens[3], Token::Plus);
+        assert_eq!(tokens[4], Token::IntLiteral(5));
+    }
+
+    #[test]
+    fn test_function_definition() {
+        let mut lexer = Lexer::new("def add(a: int, b: int) -> int".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::Def);
+        assert_eq!(tokens[1], Token::Identifier("add".to_string()));
+        assert_eq!(tokens[2], Token::LeftParen);
+        assert_eq!(tokens[3], Token::Identifier("a".to_string()));
+        assert_eq!(tokens[4], Token::Colon);
+        assert_eq!(tokens[5], Token::IntType);
+        assert_eq!(tokens[6], Token::Comma);
+        assert_eq!(tokens[7], Token::Identifier("b".to_string()));
+        assert_eq!(tokens[8], Token::Colon);
+        assert_eq!(tokens[9], Token::IntType);
+        assert_eq!(tokens[10], Token::RightParen);
+        assert_eq!(tokens[11], Token::Arrow);
+        assert_eq!(tokens[12], Token::IntType);
+    }
+
+    #[test]
+    fn test_types() {
+        let mut lexer = Lexer::new("int float bool str list dict".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::IntType);
+        assert_eq!(tokens[1], Token::FloatType);
+        assert_eq!(tokens[2], Token::BoolType);
+        assert_eq!(tokens[3], Token::StrType);
+        assert_eq!(tokens[4], Token::ListType);
+        assert_eq!(tokens[5], Token::DictType);
+    }
+
+    #[test]
+    fn test_boolean_literals() {
+        let mut lexer = Lexer::new("True False".to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::True);
+        assert_eq!(tokens[1], Token::False);
+    }
+
+    #[test]
+    fn test_fstring() {
+        let mut lexer = Lexer::new(r#"f"Hello {name}""#.to_string());
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0], Token::FStringLiteral("Hello {name}".to_string()));
+    }
+}

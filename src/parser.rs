@@ -880,3 +880,577 @@ impl Parser {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+
+    fn parse_source(source: &str) -> Program {
+        let lexer = Lexer::new(source.to_string());
+        let mut parser = Parser::new(lexer);
+        parser.parse()
+    }
+
+    #[test]
+    fn test_parse_variable_declaration() {
+        let program = parse_source("x: int = 42");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::VarDecl { name, type_annotation, initializer } = &program.statements[0] {
+            assert_eq!(name, "x");
+            assert_eq!(*type_annotation, Type::Int);
+            assert!(initializer.is_some());
+        } else {
+            panic!("Expected VarDecl statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_definition() {
+        let program = parse_source("def add(a: int, b: int) -> int { return a + b }");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::FunctionDef { name, params, return_type, body } = &program.statements[0] {
+            assert_eq!(name, "add");
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "a");
+            assert_eq!(params[0].param_type, Type::Int);
+            assert_eq!(params[1].name, "b");
+            assert_eq!(params[1].param_type, Type::Int);
+            assert_eq!(*return_type, Type::Int);
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected FunctionDef statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_class_definition() {
+        let source = r#"
+class Person {
+    name: str
+    age: int
+
+    def greet(self: Person) -> void {
+        pass
+    }
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::ClassDef { name, fields, methods, .. } = &program.statements[0] {
+            assert_eq!(name, "Person");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].name, "name");
+            assert_eq!(fields[0].field_type, Type::Str);
+            assert_eq!(fields[1].name, "age");
+            assert_eq!(fields[1].field_type, Type::Int);
+            assert_eq!(methods.len(), 1);
+        } else {
+            panic!("Expected ClassDef statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_if_statement() {
+        let program = parse_source("if x > 0 { y = 1 }");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::If { condition, then_branch, elif_branches, else_branch } = &program.statements[0] {
+            assert!(matches!(condition, Expression::Binary { .. }));
+            assert_eq!(then_branch.len(), 1);
+            assert_eq!(elif_branches.len(), 0);
+            assert!(else_branch.is_none());
+        } else {
+            panic!("Expected If statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_if_elif_else() {
+        let source = r#"
+if x > 10 {
+    y = 1
+} elif x > 5 {
+    y = 2
+} else {
+    y = 3
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::If { elif_branches, else_branch, .. } = &program.statements[0] {
+            assert_eq!(elif_branches.len(), 1);
+            assert!(else_branch.is_some());
+        } else {
+            panic!("Expected If statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_while_loop() {
+        let program = parse_source("while x < 10 { x = x + 1 }");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::While { condition, body } = &program.statements[0] {
+            assert!(matches!(condition, Expression::Binary { .. }));
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected While statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_for_loop() {
+        let program = parse_source("for i in items { print_int(i) }");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::For { variable, iterable, body } = &program.statements[0] {
+            assert_eq!(variable, "i");
+            assert!(matches!(iterable, Expression::Variable(_)));
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected For statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_break_continue() {
+        let program = parse_source("while True { break }");
+        if let Statement::While { body, .. } = &program.statements[0] {
+            assert!(matches!(body[0], Statement::Break));
+        } else {
+            panic!("Expected While with Break");
+        }
+
+        let program = parse_source("while True { continue }");
+        if let Statement::While { body, .. } = &program.statements[0] {
+            assert!(matches!(body[0], Statement::Continue));
+        } else {
+            panic!("Expected While with Continue");
+        }
+    }
+
+    #[test]
+    fn test_parse_assert() {
+        let program = parse_source("assert x == 5");
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Assert { condition, message } = &program.statements[0] {
+            assert!(matches!(condition, Expression::Binary { .. }));
+            assert!(message.is_none());
+        } else {
+            panic!("Expected Assert statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_assert_with_message() {
+        let program = parse_source(r#"assert x > 0, "x must be positive""#);
+
+        if let Statement::Assert { message, .. } = &program.statements[0] {
+            assert_eq!(message.as_ref().unwrap(), "x must be positive");
+        } else {
+            panic!("Expected Assert statement with message");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_statement() {
+        let program = parse_source("def foo() -> int { return 42 }");
+
+        if let Statement::FunctionDef { body, .. } = &program.statements[0] {
+            if let Statement::Return(Some(expr)) = &body[0] {
+                assert!(matches!(expr, Expression::IntLiteral(42)));
+            } else {
+                panic!("Expected Return statement");
+            }
+        } else {
+            panic!("Expected FunctionDef");
+        }
+    }
+
+    #[test]
+    fn test_parse_binary_expressions() {
+        let program = parse_source("x = 10 + 5 * 2");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            // Should parse as 10 + (5 * 2) due to precedence
+            if let Expression::Binary { op, right, .. } = &**value {
+                assert_eq!(*op, BinaryOp::Add);
+                assert!(matches!(**right, Expression::Binary { op: BinaryOp::Multiply, .. }));
+            } else {
+                panic!("Expected Binary expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_comparison_operators() {
+        let tests = vec![
+            ("x == 5", BinaryOp::Equal),
+            ("x != 5", BinaryOp::NotEqual),
+            ("x < 5", BinaryOp::Less),
+            ("x > 5", BinaryOp::Greater),
+            ("x <= 5", BinaryOp::LessEqual),
+            ("x >= 5", BinaryOp::GreaterEqual),
+        ];
+
+        for (source, expected_op) in tests {
+            let program = parse_source(source);
+            if let Statement::Expression(Expression::Binary { op, .. }) = &program.statements[0] {
+                assert_eq!(*op, expected_op);
+            } else {
+                panic!("Expected Binary expression for {}", source);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_logical_operators() {
+        let program = parse_source("x > 0 and y < 10");
+
+        if let Statement::Expression(Expression::Binary { op, .. }) = &program.statements[0] {
+            assert_eq!(*op, BinaryOp::And);
+        } else {
+            panic!("Expected And expression");
+        }
+
+        let program = parse_source("x == 0 or y == 0");
+
+        if let Statement::Expression(Expression::Binary { op, .. }) = &program.statements[0] {
+            assert_eq!(*op, BinaryOp::Or);
+        } else {
+            panic!("Expected Or expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_unary_operators() {
+        let program = parse_source("x = not True");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Unary { op, .. } = &**value {
+                assert_eq!(*op, UnaryOp::Not);
+            } else {
+                panic!("Expected Unary expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+
+        let program = parse_source("x = -5");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Unary { op, .. } = &**value {
+                assert_eq!(*op, UnaryOp::Negate);
+            } else {
+                panic!("Expected Unary expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_compound_assignment() {
+        let tests = vec![
+            ("x += 5", BinaryOp::Add),
+            ("x -= 5", BinaryOp::Subtract),
+            ("x *= 5", BinaryOp::Multiply),
+            ("x /= 5", BinaryOp::Divide),
+        ];
+
+        for (source, expected_op) in tests {
+            let program = parse_source(source);
+
+            if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+                // Compound assignments are desugared to x = x op value
+                if let Expression::Binary { op, .. } = &**value {
+                    assert_eq!(*op, expected_op, "Failed for {}", source);
+                } else {
+                    panic!("Expected Binary expression in compound assignment for {}", source);
+                }
+            } else {
+                panic!("Expected Assignment for {}", source);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_increment_decrement() {
+        let program = parse_source("x++");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Binary { op, right, .. } = &**value {
+                assert_eq!(*op, BinaryOp::Add);
+                assert!(matches!(**right, Expression::IntLiteral(1)));
+            } else {
+                panic!("Expected Binary expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+
+        let program = parse_source("y--");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Binary { op, right, .. } = &**value {
+                assert_eq!(*op, BinaryOp::Subtract);
+                assert!(matches!(**right, Expression::IntLiteral(1)));
+            } else {
+                panic!("Expected Binary expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_list_literal() {
+        let program = parse_source("x = [1, 2, 3, 4, 5]");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::ListLiteral { elements } = &**value {
+                assert_eq!(elements.len(), 5);
+            } else {
+                panic!("Expected ListLiteral");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_dict_literal() {
+        let program = parse_source(r#"x = {"a": 1, "b": 2}"#);
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::DictLiteral { pairs } = &**value {
+                assert_eq!(pairs.len(), 2);
+            } else {
+                panic!("Expected DictLiteral");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_access() {
+        let program = parse_source("x = arr[0]");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Index { object, index } = &**value {
+                assert!(matches!(**object, Expression::Variable(_)));
+                assert!(matches!(**index, Expression::IntLiteral(0)));
+            } else {
+                panic!("Expected Index expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_assignment() {
+        let program = parse_source("arr[0] = 42");
+
+        if let Statement::Expression(Expression::IndexAssignment { object, index, value }) = &program.statements[0] {
+            assert_eq!(object, "arr");
+            assert!(matches!(**index, Expression::IntLiteral(0)));
+            assert!(matches!(**value, Expression::IntLiteral(42)));
+        } else {
+            panic!("Expected IndexAssignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let program = parse_source("print_int(42)");
+
+        if let Statement::Expression(Expression::Call { callee, args }) = &program.statements[0] {
+            assert!(matches!(**callee, Expression::Variable(_)));
+            assert_eq!(args.len(), 1);
+        } else {
+            panic!("Expected Call expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_method_call() {
+        let program = parse_source("obj.method(1, 2)");
+
+        if let Statement::Expression(Expression::MethodCall { object, method, args }) = &program.statements[0] {
+            assert!(matches!(**object, Expression::Variable(_)));
+            assert_eq!(method, "method");
+            assert_eq!(args.len(), 2);
+        } else {
+            panic!("Expected MethodCall expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_member_access() {
+        let program = parse_source("x = obj.field");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::MemberAccess { object, member } = &**value {
+                assert!(matches!(**object, Expression::Variable(_)));
+                assert_eq!(member, "field");
+            } else {
+                panic!("Expected MemberAccess expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_import() {
+        let program = parse_source(r#"import "module""#);
+
+        if let Statement::Import { path } = &program.statements[0] {
+            assert_eq!(path, "module");
+        } else {
+            panic!("Expected Import statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_types() {
+        let program = parse_source("x: int = 0");
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            assert_eq!(*type_annotation, Type::Int);
+        }
+
+        let program = parse_source("x: float = 0.0");
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            assert_eq!(*type_annotation, Type::Float);
+        }
+
+        let program = parse_source("x: bool = True");
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            assert_eq!(*type_annotation, Type::Bool);
+        }
+
+        let program = parse_source(r#"x: str = "hello""#);
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            assert_eq!(*type_annotation, Type::Str);
+        }
+    }
+
+    #[test]
+    fn test_parse_list_type() {
+        let program = parse_source("x: list[int] = []");
+
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            if let Type::List(elem_type) = type_annotation {
+                assert_eq!(**elem_type, Type::Int);
+            } else {
+                panic!("Expected List type");
+            }
+        } else {
+            panic!("Expected VarDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_dict_type() {
+        let program = parse_source("x: dict[str, int] = {}");
+
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            if let Type::Dict(key_type, val_type) = type_annotation {
+                assert_eq!(**key_type, Type::Str);
+                assert_eq!(**val_type, Type::Int);
+            } else {
+                panic!("Expected Dict type");
+            }
+        } else {
+            panic!("Expected VarDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_fstring() {
+        let program = parse_source(r#"x = f"Hello {name}""#);
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::FString { parts, expressions } = &**value {
+                assert_eq!(parts.len(), 2); // "Hello " and ""
+                assert_eq!(expressions.len(), 1);
+            } else {
+                panic!("Expected FString expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_power_operator() {
+        let program = parse_source("x = 2 ** 3");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Binary { op, .. } = &**value {
+                assert_eq!(*op, BinaryOp::Power);
+            } else {
+                panic!("Expected Binary expression with Power");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_modulo_operator() {
+        let program = parse_source("x = 10 % 3");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::Binary { op, .. } = &**value {
+                assert_eq!(*op, BinaryOp::Modulo);
+            } else {
+                panic!("Expected Binary expression with Modulo");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_literals() {
+        let program = parse_source("x = 42");
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            assert!(matches!(**value, Expression::IntLiteral(42)));
+        }
+
+        let program = parse_source("x = 3.14");
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            assert!(matches!(**value, Expression::FloatLiteral(_)));
+        }
+
+        let program = parse_source(r#"x = "hello""#);
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::StringLiteral(s) = &**value {
+                assert_eq!(s, "hello");
+            } else {
+                panic!("Expected StringLiteral");
+            }
+        }
+
+        let program = parse_source("x = True");
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            assert!(matches!(**value, Expression::BoolLiteral(true)));
+        }
+
+        let program = parse_source("x = False");
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            assert!(matches!(**value, Expression::BoolLiteral(false)));
+        }
+    }
+}

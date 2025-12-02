@@ -18,10 +18,42 @@ WadeScript is a statically-typed programming language that compiles to native co
 
 **IMPORTANT:** Always use the `ws` tool for building and running WadeScript programs.
 
-### Build the compiler:
+### Build the Compiler and Runtime (using Make - Recommended)
+
+The project includes a comprehensive Makefile that handles building both the compiler and runtime library:
+
 ```bash
-cargo build  # or: . "$HOME/.cargo/env" && cargo build
+make              # Build compiler + runtime (debug mode)
+make release      # Build optimized release version
+make test         # Run the test suite
+make examples     # Compile all example programs
+make clean        # Clean debug build artifacts
+make clean-all    # Clean all build artifacts (debug + release)
+make help         # Show all available commands
 ```
+
+Additional make targets:
+```bash
+make compiler          # Build only the compiler (debug)
+make compiler-release  # Build only the compiler (release)
+make runtime           # Build only the runtime library (debug)
+make runtime-release   # Build only the runtime library (release)
+make check             # Fast code check without building
+make fmt               # Format Rust code
+make lint              # Run clippy linter
+make info              # Show build configuration
+make rebuild           # Clean and rebuild from scratch
+make install           # Install to ~/.local/bin
+```
+
+### Build using Cargo directly:
+```bash
+cargo build         # Debug build
+cargo build --release  # Release build
+# or: . "$HOME/.cargo/env" && cargo build
+```
+
+Note: The Makefile automatically sets `LLVM_SYS_170_PREFIX` and manages both the compiler binary and runtime static library (`libwadescript_runtime.a`).
 
 ### Run a WadeScript program:
 ```bash
@@ -35,6 +67,8 @@ cargo build  # or: . "$HOME/.cargo/env" && cargo build
 
 ### Run the test suite:
 ```bash
+make test
+# or
 ./ws test
 ```
 
@@ -50,12 +84,11 @@ wadescript/
 │   ├── parser.rs         # Parsing tokens into AST
 │   ├── ast.rs            # Abstract Syntax Tree definitions
 │   ├── typechecker.rs    # Type checking and validation
-│   └── codegen.rs        # LLVM IR code generation
-├── runtime/
-│   ├── list_runtime.c    # C runtime for dynamic lists
-│   ├── list.o            # Compiled list runtime
-│   ├── dict_runtime.c    # C runtime for dictionaries
-│   └── dict.o            # Compiled dict runtime
+│   ├── codegen.rs        # LLVM IR code generation
+│   └── runtime/          # Rust runtime library (compiled to staticlib)
+│       ├── lib.rs        # Runtime library entry point
+│       ├── list.rs       # Dynamic list operations
+│       └── dict.rs       # Hash table dictionary operations
 ├── examples/
 │   ├── hello.ws          # Hello world example
 │   ├── fibonacci.ws      # Fibonacci sequence
@@ -70,11 +103,29 @@ wadescript/
 
 ## Compilation Pipeline
 
+### WadeScript Program Compilation
+
 1. **Lexing** (lexer.rs): Source code → Tokens
 2. **Parsing** (parser.rs): Tokens → AST
 3. **Type Checking** (typechecker.rs): Validates types and semantics
-4. **Code Generation** (codegen.rs): AST → LLVM IR → Object file
-5. **Linking** (main.rs): Links object file with runtime libraries using clang
+4. **Code Generation** (codegen.rs): AST → LLVM IR → Object file (.o)
+5. **Linking** (main.rs): Links object file with runtime library using clang → Executable
+
+### Complete Build Process (via Makefile)
+
+When you run `make`, the following happens:
+
+1. **Cargo builds the project** with LLVM_SYS_170_PREFIX set
+   - Compiles compiler (src/main.rs, lexer.rs, parser.rs, etc.) → `target/debug/wadescript`
+   - Compiles runtime library (src/runtime/*.rs) → `target/debug/libwadescript_runtime.a`
+
+2. **When compiling a WadeScript program** (via `./ws build example.ws`):
+   - Compiler parses and type-checks the .ws file
+   - Generates LLVM IR with external runtime function declarations (`list_push_i64`, `dict_create`, etc.)
+   - LLVM compiles IR to native object file (example.o)
+   - Clang links example.o with libwadescript_runtime.a
+   - Runtime library provides implementations of external functions
+   - Final executable: `./example` (single binary, no external dependencies)
 
 ## Key Components
 
@@ -99,13 +150,17 @@ Defines the structure of WadeScript programs:
 - Handles runtime function calls (list/dict operations)
 - Creates string literals and format strings
 
-### Runtime Libraries
-**Lists** (runtime/list_runtime.c):
-- Structure: `{ ptr data, i64 length, i64 capacity }`
-- Functions: `list_create_i64`, `list_push_i64`, `list_get_i64`, `list_pop_i64`, `list_set_i64`
-- Dynamic resizing (capacity doubles when full)
+### Runtime Libraries (Rust)
+The runtime is implemented in Rust and compiled as a static library (`libwadescript_runtime.a`).
 
-**Dictionaries** (runtime/dict_runtime.c):
+**Lists** (src/runtime/list.rs):
+- Structure: `{ ptr data, i64 length, i64 capacity }`
+- Functions: `list_push_i64`, `list_get_i64`, `list_pop_i64`, `list_set_i64`
+- Dynamic resizing (capacity doubles when full, starts at 4)
+- C-compatible FFI with `#[no_mangle]` and `extern "C"`
+- Memory-safe Rust implementation with unsafe blocks for FFI
+
+**Dictionaries** (src/runtime/dict.rs):
 - Structure: `{ ptr buckets, i64 capacity, i64 length }`
 - Hash table with separate chaining for collision handling
 - Hash function: djb2 algorithm for strings
@@ -115,6 +170,7 @@ Defines the structure of WadeScript programs:
 - Load factor: 0.75 (rehashes when exceeded)
 - O(1) average case for get/set operations
 - Automatic rehashing doubles capacity and redistributes entries
+- Custom string operations (dup, cmp) for C-string compatibility
 
 ## Type System
 
@@ -159,8 +215,17 @@ import "path/to/module"
 3. **Update Parser** (parser.rs): Parse new syntax
 4. **Update Type Checker** (typechecker.rs): Add type checking logic
 5. **Update Code Generator** (codegen.rs): Generate LLVM IR
-6. **Test**: Create test in `tests/` directory (see Testing section)
-7. **Build and run** using `cargo build` and `./ws run`
+6. **Update Runtime** (src/runtime/*.rs): Add new runtime functions if needed
+7. **Test**: Create test in `tests/` directory (see Testing section)
+8. **Build and run**: Use `make` or `make test` to build and verify
+
+**Quick development cycle:**
+```bash
+make check       # Fast syntax check
+make test        # Build and run all tests
+make examples    # Verify examples compile
+make fmt         # Format code before committing
+```
 
 ### Testing
 
@@ -259,13 +324,14 @@ while condition {
 
 1. **Always use `./ws` tool** for building and running - it handles environment setup
 2. **Main function required**: Every program needs a `def main() -> int` entry point
-3. **Runtime libraries**: Changes to list_runtime.c or dict_runtime.c require recompilation to .o files
-4. **LLVM version**: Uses LLVM 17 (set via LLVM_SYS_170_PREFIX)
-5. **Linking**: Final executable links object file with list.o and dict.o using clang
+3. **Runtime libraries**: The runtime is written in Rust (src/runtime/) and compiled as a static library (`libwadescript_runtime.a`) by Cargo
+4. **Build system**: Use `make` for a streamlined build experience, or `cargo build` for direct compilation
+5. **LLVM version**: Uses LLVM 17 (set via LLVM_SYS_170_PREFIX - handled automatically by Makefile)
+6. **Linking**: Final executable links object file with `libwadescript_runtime.a` using clang
+7. **Profile matching**: The runtime library path automatically matches the build profile (debug or release)
 
 ## Future Enhancements
 
-- HashMap-based dictionary implementation for better performance
 - Array type full implementation
 - More collection methods (map, filter, reduce)
 - String methods and string builder
@@ -273,19 +339,52 @@ while condition {
 - Error handling (try/catch)
 - Generics
 - Traits/interfaces
+- Package manager
+- Standard library expansion
 
 ## Troubleshooting
 
 **Cargo not found:**
-The `ws` tool handles this - always use `./ws build` or `./ws run`
+```bash
+make              # Uses automatic Cargo detection
+# or
+export PATH="$HOME/.cargo/bin:$PATH"
+```
 
 **LLVM not found:**
-The `ws` tool sets LLVM_SYS_170_PREFIX - use `./ws build`
+```bash
+make              # Automatically sets LLVM_SYS_170_PREFIX
+# or manually:
+export LLVM_SYS_170_PREFIX=/opt/homebrew/opt/llvm@17
+```
+
+**Build errors:**
+```bash
+make clean-all    # Clean all artifacts
+make rebuild      # Rebuild from scratch
+make info         # Check build configuration
+```
 
 **Linking errors:**
-- Ensure runtime/*.o files are present
+- Ensure `libwadescript_runtime.a` exists in target/debug/ or target/release/
+- Run `make` to rebuild both compiler and runtime
 - Check that clang is installed
 - Verify runtime function signatures match declarations in codegen.rs
 
+**Test failures:**
+```bash
+./ws run tests/test_name.ws     # Run individual test
+make test                        # Run all tests
+make examples                    # Verify examples compile
+```
+
 **Type errors:**
 Read the error message carefully - it shows expected vs actual types and the location of the mismatch.
+
+**Runtime changes:**
+When modifying src/runtime/*.rs files:
+```bash
+make runtime      # Rebuild just the runtime library
+# or
+make              # Rebuild everything
+```

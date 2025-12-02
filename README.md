@@ -142,28 +142,51 @@ class Person {
 
 ## Building
 
-Requires Rust and LLVM 17:
+Requires Rust and LLVM 17.
+
+### Using Make (Recommended)
+
+```bash
+make              # Build compiler and runtime (debug mode)
+make release      # Build optimized release version
+make test         # Run test suite
+make examples     # Compile all example programs
+make clean        # Clean build artifacts
+make help         # Show all available targets
+```
+
+### Using Cargo Directly
 
 ```bash
 cargo build --release
 ```
+
+Note: LLVM 17 must be installed. On macOS with Homebrew: `brew install llvm@17`
 
 ## Testing
 
 Run the comprehensive test suite:
 
 ```bash
-./run_tests.sh
+make test
+# or
+./ws test
 ```
 
 See `TESTING.md` for details on the test suite and how to add new tests.
 
 ## Usage
 
-Compile a WadeScript program:
+Compile and run a WadeScript program:
 
 ```bash
-./target/release/wadescript examples/hello.ws
+./ws run examples/hello.ws
+```
+
+Or just compile:
+
+```bash
+./ws build examples/hello.ws
 ```
 
 This produces an executable with the same name as the input file (without extension).
@@ -171,7 +194,7 @@ This produces an executable with the same name as the input file (without extens
 To emit LLVM IR instead:
 
 ```bash
-./target/release/wadescript examples/hello.ws --emit-llvm
+./target/debug/wadescript examples/hello.ws --emit-llvm
 ```
 
 ## Examples

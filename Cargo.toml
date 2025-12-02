@@ -5,3 +5,8 @@ edition = "2021"
 
 [dependencies]
 inkwell = { version = "0.5", features = ["llvm17-0"] }
+
+[lib]
+name = "wadescript_runtime"
+crate-type = ["staticlib"]
+path = "src/runtime/lib.rs"

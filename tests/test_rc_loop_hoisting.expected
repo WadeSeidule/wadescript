@@ -1,0 +1,33 @@
+====================================
+RC Phase 4b Tests: Loop Hoisting
+====================================
+
+Test 1: Simple loop-invariant
+15
+Simple loop-invariant test passed
+Test 2: Nested loop-invariant
+120
+Nested loop-invariant test passed
+Test 3: Mixed invariant/non-invariant
+3
+4
+Mixed invariant test passed
+Test 4: Dict loop-invariant
+300
+Dict loop-invariant test passed
+Test 5: Method call loop-invariant
+75
+Method call invariant test passed
+Test 6: Non-invariant (assigned in loop)
+2
+6
+Non-invariant test passed
+
+====================================
+All Phase 4b loop hoisting tests passed!
+====================================
+
+Phase 4b Optimization Active:
+- Loop-invariant variables detected
+- Variables defined outside loops and only read inside
+- RC operations happen at outer scope, not per-iteration

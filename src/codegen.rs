@@ -32,6 +32,11 @@ pub struct CodeGen<'ctx> {
     remaining_statements: Vec<Statement>,
     // RC Optimization Phase 3: track variables that don't escape function scope
     non_escaping_variables: HashSet<String>,
+    // RC Optimization Phase 4: track pure functions (don't cause parameters to escape)
+    pure_functions: HashSet<String>,
+    // RC Optimization Phase 4b: track loop-invariant variables
+    loop_nesting_depth: usize,
+    loop_invariant_variables: HashSet<String>,
     // Debug info
     debug_builder: DebugInfoBuilder<'ctx>,
     compile_unit: DICompileUnit<'ctx>,
@@ -77,6 +82,9 @@ impl<'ctx> CodeGen<'ctx> {
             moved_variables: HashSet::new(),
             remaining_statements: Vec::new(),
             non_escaping_variables: HashSet::new(),
+            pure_functions: HashSet::new(),
+            loop_nesting_depth: 0,
+            loop_invariant_variables: HashSet::new(),
             debug_builder,
             compile_unit,
             source_file: source_file.to_string(),
@@ -131,19 +139,45 @@ impl<'ctx> CodeGen<'ctx> {
         matches!(ws_type, Type::List(_) | Type::Dict(_, _) | Type::Custom(_))
     }
 
-    // OPTIMIZATION Phase 3: Check if expression causes variable to escape
+    // OPTIMIZATION Phase 3+4: Check if expression causes variable to escape
     fn expression_escapes_variable(&self, expr: &Expression, var_name: &str) -> bool {
         match expr {
-            // Function calls cause escape (parameter could be stored/returned)
-            Expression::Call { args, .. } => {
-                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            // Function calls cause escape UNLESS the function is pure (Phase 4)
+            Expression::Call { callee, args, line: _ } => {
+                // Check if this is a known pure function
+                let is_pure = if let Expression::Variable(func_name) = &**callee {
+                    self.pure_functions.contains(func_name)
+                } else if let Expression::MemberAccess { member, .. } = &**callee {
+                    // Module.function() call
+                    self.pure_functions.contains(member)
+                } else {
+                    false
+                };
+
+                if is_pure {
+                    // Pure function - doesn't cause escape
+                    false
+                } else {
+                    // Unknown function - conservatively assume escape
+                    args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+                }
             }
             // Returning the variable causes escape
             Expression::Variable(name) if name == var_name => false, // Handled separately in Return
-            // Method calls on the variable don't cause escape (in-place operations)
-            Expression::MethodCall { object, args, .. } => {
-                // Only args can escape, not the object itself (it's used in-place)
-                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            // Method calls on the variable don't cause escape (in-place operations - Phase 4)
+            Expression::MethodCall { object: _, method, args } => {
+                // Check if method is pure (e.g., list.length, list.get)
+                // If method is pure, it doesn't cause the object to escape
+                let is_pure = self.pure_functions.contains(method);
+
+                if is_pure {
+                    // Pure method - only check if args escape
+                    args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+                } else {
+                    // Unknown method - conservatively assume object doesn't escape (in-place)
+                    // but args might
+                    args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+                }
             }
             // Assignment doesn't cause escape (just moves ownership)
             Expression::Assignment { value, .. } => {
@@ -302,6 +336,156 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    // OPTIMIZATION Phase 4b: Check if a statement assigns to a variable
+    fn statement_assigns_variable(&self, stmt: &Statement, var_name: &str) -> bool {
+        match stmt {
+            Statement::VarDecl { name, .. } => name == var_name,
+            Statement::Expression(Expression::Assignment { target, .. }) => target == var_name,
+            Statement::Expression(Expression::IndexAssignment { object, .. }) => object == var_name,
+            Statement::If { then_branch, elif_branches, else_branch, .. } => {
+                then_branch.iter().any(|s| self.statement_assigns_variable(s, var_name)) ||
+                elif_branches.iter().any(|(_, body)| {
+                    body.iter().any(|s| self.statement_assigns_variable(s, var_name))
+                }) ||
+                else_branch.as_ref().map_or(false, |body| {
+                    body.iter().any(|s| self.statement_assigns_variable(s, var_name))
+                })
+            }
+            Statement::While { body, .. } => {
+                body.iter().any(|s| self.statement_assigns_variable(s, var_name))
+            }
+            Statement::For { variable, body, .. } => {
+                // Loop variable is implicitly assigned
+                variable == var_name || body.iter().any(|s| self.statement_assigns_variable(s, var_name))
+            }
+            _ => false,
+        }
+    }
+
+    // OPTIMIZATION Phase 4b: Detect loop-invariant variables
+    // Returns set of variables that are used but not assigned in the loop body
+    fn detect_loop_invariant_variables(&self, body: &[Statement]) -> HashSet<String> {
+        let mut invariant_vars = HashSet::new();
+
+        // Find all variables used in the loop
+        for stmt in body {
+            self.collect_used_variables(stmt, &mut invariant_vars);
+        }
+
+        // Remove variables that are assigned in the loop
+        invariant_vars.retain(|var_name| {
+            !body.iter().any(|stmt| self.statement_assigns_variable(stmt, var_name))
+        });
+
+        invariant_vars
+    }
+
+    // Helper: Collect all variables used in a statement
+    fn collect_used_variables(&self, stmt: &Statement, vars: &mut HashSet<String>) {
+        match stmt {
+            Statement::Expression(expr) => self.collect_used_variables_in_expr(expr, vars),
+            Statement::Return(Some(expr)) => self.collect_used_variables_in_expr(expr, vars),
+            Statement::If { condition, then_branch, elif_branches, else_branch } => {
+                self.collect_used_variables_in_expr(condition, vars);
+                for s in then_branch {
+                    self.collect_used_variables(s, vars);
+                }
+                for (cond, body) in elif_branches {
+                    self.collect_used_variables_in_expr(cond, vars);
+                    for s in body {
+                        self.collect_used_variables(s, vars);
+                    }
+                }
+                if let Some(body) = else_branch {
+                    for s in body {
+                        self.collect_used_variables(s, vars);
+                    }
+                }
+            }
+            Statement::While { condition, body } => {
+                self.collect_used_variables_in_expr(condition, vars);
+                for s in body {
+                    self.collect_used_variables(s, vars);
+                }
+            }
+            Statement::For { iterable, body, .. } => {
+                self.collect_used_variables_in_expr(iterable, vars);
+                for s in body {
+                    self.collect_used_variables(s, vars);
+                }
+            }
+            Statement::VarDecl { initializer, .. } => {
+                if let Some(expr) = initializer {
+                    self.collect_used_variables_in_expr(expr, vars);
+                }
+            }
+            Statement::Assert { condition, .. } => {
+                self.collect_used_variables_in_expr(condition, vars);
+            }
+            _ => {}
+        }
+    }
+
+    // Helper: Collect all variables used in an expression
+    fn collect_used_variables_in_expr(&self, expr: &Expression, vars: &mut HashSet<String>) {
+        match expr {
+            Expression::Variable(name) => {
+                vars.insert(name.clone());
+            }
+            Expression::Binary { left, right, .. } => {
+                self.collect_used_variables_in_expr(left, vars);
+                self.collect_used_variables_in_expr(right, vars);
+            }
+            Expression::Unary { operand, .. } => {
+                self.collect_used_variables_in_expr(operand, vars);
+            }
+            Expression::Call { args, .. } => {
+                for arg in args {
+                    self.collect_used_variables_in_expr(arg, vars);
+                }
+            }
+            Expression::Assignment { target, value } => {
+                vars.insert(target.clone());
+                self.collect_used_variables_in_expr(value, vars);
+            }
+            Expression::Index { object, index, .. } => {
+                self.collect_used_variables_in_expr(object, vars);
+                self.collect_used_variables_in_expr(index, vars);
+            }
+            Expression::IndexAssignment { object, index, value, .. } => {
+                vars.insert(object.clone());
+                self.collect_used_variables_in_expr(index, vars);
+                self.collect_used_variables_in_expr(value, vars);
+            }
+            Expression::MethodCall { object, args, .. } => {
+                self.collect_used_variables_in_expr(object, vars);
+                for arg in args {
+                    self.collect_used_variables_in_expr(arg, vars);
+                }
+            }
+            Expression::MemberAccess { object, .. } => {
+                self.collect_used_variables_in_expr(object, vars);
+            }
+            Expression::ListLiteral { elements } => {
+                for elem in elements {
+                    self.collect_used_variables_in_expr(elem, vars);
+                }
+            }
+            Expression::DictLiteral { pairs } => {
+                for (k, v) in pairs {
+                    self.collect_used_variables_in_expr(k, vars);
+                    self.collect_used_variables_in_expr(v, vars);
+                }
+            }
+            Expression::FString { expressions, .. } => {
+                for expr in expressions {
+                    self.collect_used_variables_in_expr(expr, vars);
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Inline RC retain: increment reference count
     fn build_rc_retain_inline(&self, ptr: PointerValue<'ctx>) {
         let i64_type = self.context.i64_type();
@@ -433,6 +617,9 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_dict_functions();
         self.declare_string_functions();
         self.declare_runtime_error_functions();
+
+        // Phase 4: Mark built-in pure functions (don't cause escape)
+        self.mark_builtin_pure_functions();
 
         for statement in &program.statements {
             self.compile_statement(statement)?;
@@ -775,6 +962,40 @@ impl<'ctx> CodeGen<'ctx> {
         let str_char_at_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
         let str_char_at_fn = self.module.add_function("str_char_at", str_char_at_type, None);
         self.functions.insert("str_char_at".to_string(), str_char_at_fn);
+    }
+
+    fn mark_builtin_pure_functions(&mut self) {
+        // Phase 4: Mark functions that don't cause their RC parameters to escape
+        // These functions either:
+        // 1. Only read from parameters (list_get, dict_get)
+        // 2. Modify parameters in-place without storing references (list_push)
+        // 3. Return non-RC values (list_length, str_length)
+
+        // List functions - all non-escaping
+        self.pure_functions.insert("list_length".to_string());
+        self.pure_functions.insert("list_get_i64".to_string());
+        self.pure_functions.insert("list_push_i64".to_string());
+        self.pure_functions.insert("list_set_i64".to_string());
+        self.pure_functions.insert("list_pop_i64".to_string());
+
+        // Dict functions - all non-escaping
+        self.pure_functions.insert("dict_length".to_string());
+        self.pure_functions.insert("dict_get".to_string());
+        self.pure_functions.insert("dict_set".to_string());
+        self.pure_functions.insert("dict_has".to_string());
+
+        // String functions - all non-escaping for input strings
+        self.pure_functions.insert("str_length".to_string());
+        self.pure_functions.insert("str_upper".to_string());
+        self.pure_functions.insert("str_lower".to_string());
+        self.pure_functions.insert("str_contains".to_string());
+        self.pure_functions.insert("str_char_at".to_string());
+
+        // Print functions - non-escaping
+        self.pure_functions.insert("print_int".to_string());
+        self.pure_functions.insert("print_float".to_string());
+        self.pure_functions.insert("print_str".to_string());
+        self.pure_functions.insert("print_bool".to_string());
     }
 
     fn declare_runtime_error_functions(&mut self) {
@@ -1144,6 +1365,20 @@ impl<'ctx> CodeGen<'ctx> {
                     .current_function
                     .ok_or("While loop outside of function")?;
 
+                // OPTIMIZATION Phase 4b: Detect loop-invariant variables
+                self.loop_nesting_depth += 1;
+                let invariant_vars = self.detect_loop_invariant_variables(body);
+
+                // Filter to only RC types that exist in current scope
+                for var_name in invariant_vars {
+                    if let Some((_, _, ast_type)) = self.variables.get(&var_name) {
+                        if self.is_rc_type(ast_type) && self.loop_nesting_depth == 1 {
+                            // Only mark as loop-invariant at outermost loop level
+                            self.loop_invariant_variables.insert(var_name);
+                        }
+                    }
+                }
+
                 let cond_block = self.context.append_basic_block(function, "while_cond");
                 let body_block = self.context.append_basic_block(function, "while_body");
                 let after_block = self.context.append_basic_block(function, "after_while");
@@ -1178,6 +1413,12 @@ impl<'ctx> CodeGen<'ctx> {
 
                 self.builder.position_at_end(after_block);
 
+                // OPTIMIZATION Phase 4b: Cleanup loop-invariant tracking
+                self.loop_nesting_depth -= 1;
+                if self.loop_nesting_depth == 0 {
+                    self.loop_invariant_variables.clear();
+                }
+
                 Ok(())
             }
 
@@ -1197,6 +1438,20 @@ impl<'ctx> CodeGen<'ctx> {
                 let function = self
                     .current_function
                     .ok_or("For loop outside of function")?;
+
+                // OPTIMIZATION Phase 4b: Detect loop-invariant variables
+                self.loop_nesting_depth += 1;
+                let invariant_vars = self.detect_loop_invariant_variables(body);
+
+                // Filter to only RC types that exist in current scope
+                for var_name in invariant_vars {
+                    if let Some((_, _, ast_type)) = self.variables.get(&var_name) {
+                        if self.is_rc_type(ast_type) && self.loop_nesting_depth == 1 {
+                            // Only mark as loop-invariant at outermost loop level
+                            self.loop_invariant_variables.insert(var_name);
+                        }
+                    }
+                }
 
                 // Evaluate iterable once and store it
                 let iterable_val = self.compile_expression(iterable)?;
@@ -1326,6 +1581,12 @@ impl<'ctx> CodeGen<'ctx> {
 
                 // Remove loop variable from scope
                 self.variables.remove(variable);
+
+                // OPTIMIZATION Phase 4b: Cleanup loop-invariant tracking
+                self.loop_nesting_depth -= 1;
+                if self.loop_nesting_depth == 0 {
+                    self.loop_invariant_variables.clear();
+                }
 
                 Ok(())
             }

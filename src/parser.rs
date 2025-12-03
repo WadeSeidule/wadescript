@@ -1347,7 +1347,7 @@ if x > 10 {
         let program = parse_source("x = arr[0]");
 
         if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
-            if let Expression::Index { object, index } = &**value {
+            if let Expression::Index { object, index, .. } = &**value {
                 assert!(matches!(**object, Expression::Variable(_)));
                 assert!(matches!(**index, Expression::IntLiteral(0)));
             } else {
@@ -1362,7 +1362,7 @@ if x > 10 {
     fn test_parse_index_assignment() {
         let program = parse_source("arr[0] = 42");
 
-        if let Statement::Expression(Expression::IndexAssignment { object, index, value }) = &program.statements[0] {
+        if let Statement::Expression(Expression::IndexAssignment { object, index, value, .. }) = &program.statements[0] {
             assert_eq!(object, "arr");
             assert!(matches!(**index, Expression::IntLiteral(0)));
             assert!(matches!(**value, Expression::IntLiteral(42)));

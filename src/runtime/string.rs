@@ -170,4 +170,167 @@ mod tests {
             assert!(ch_out.is_null());
         }
     }
+
+    #[test]
+    fn test_str_length_null() {
+        // Null pointer should return 0
+        assert_eq!(str_length(ptr::null()), 0);
+    }
+
+    #[test]
+    fn test_str_upper_null() {
+        // Null pointer should return null
+        assert!(str_upper(ptr::null()).is_null());
+    }
+
+    #[test]
+    fn test_str_lower_null() {
+        // Null pointer should return null
+        assert!(str_lower(ptr::null()).is_null());
+    }
+
+    #[test]
+    fn test_str_contains_null() {
+        let s = CString::new("hello").unwrap();
+        let sub = CString::new("lo").unwrap();
+
+        // Null string should return 0
+        assert_eq!(str_contains(ptr::null(), sub.as_ptr() as *const u8), 0);
+        // Null substring should return 0
+        assert_eq!(str_contains(s.as_ptr() as *const u8, ptr::null()), 0);
+        // Both null should return 0
+        assert_eq!(str_contains(ptr::null(), ptr::null()), 0);
+    }
+
+    #[test]
+    fn test_str_char_at_null() {
+        // Null pointer should return null
+        assert!(str_char_at(ptr::null(), 0).is_null());
+    }
+
+    #[test]
+    fn test_str_char_at_negative_index() {
+        let s = CString::new("hello").unwrap();
+        // Negative index should return null
+        assert!(str_char_at(s.as_ptr() as *const u8, -1).is_null());
+        assert!(str_char_at(s.as_ptr() as *const u8, -100).is_null());
+    }
+
+    #[test]
+    fn test_str_upper_mixed_case() {
+        let s = CString::new("Hello World!").unwrap();
+        let result = str_upper(s.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "HELLO WORLD!");
+        }
+    }
+
+    #[test]
+    fn test_str_lower_mixed_case() {
+        let s = CString::new("Hello World!").unwrap();
+        let result = str_lower(s.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "hello world!");
+        }
+    }
+
+    #[test]
+    fn test_str_contains_empty_substring() {
+        let s = CString::new("hello").unwrap();
+        let empty = CString::new("").unwrap();
+
+        // Empty substring is contained in any string
+        assert_eq!(str_contains(s.as_ptr() as *const u8, empty.as_ptr() as *const u8), 1);
+    }
+
+    #[test]
+    fn test_str_contains_exact_match() {
+        let s = CString::new("hello").unwrap();
+        let same = CString::new("hello").unwrap();
+
+        // Exact match should return 1
+        assert_eq!(str_contains(s.as_ptr() as *const u8, same.as_ptr() as *const u8), 1);
+    }
+
+    #[test]
+    fn test_str_upper_empty() {
+        let empty = CString::new("").unwrap();
+        let result = str_upper(empty.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "");
+        }
+    }
+
+    #[test]
+    fn test_str_lower_empty() {
+        let empty = CString::new("").unwrap();
+        let result = str_lower(empty.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "");
+        }
+    }
+
+    #[test]
+    fn test_str_char_at_empty() {
+        let empty = CString::new("").unwrap();
+        // Any index on empty string should return null
+        assert!(str_char_at(empty.as_ptr() as *const u8, 0).is_null());
+    }
+
+    #[test]
+    fn test_str_upper_numbers_and_symbols() {
+        let s = CString::new("abc123!@#").unwrap();
+        let result = str_upper(s.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "ABC123!@#");
+        }
+    }
+
+    #[test]
+    fn test_str_lower_numbers_and_symbols() {
+        let s = CString::new("ABC123!@#").unwrap();
+        let result = str_lower(s.as_ptr() as *const u8);
+
+        unsafe {
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "abc123!@#");
+        }
+    }
+
+    #[test]
+    fn test_str_contains_case_sensitive() {
+        let s = CString::new("Hello World").unwrap();
+        let sub1 = CString::new("hello").unwrap();
+        let sub2 = CString::new("Hello").unwrap();
+
+        // Should be case-sensitive
+        assert_eq!(str_contains(s.as_ptr() as *const u8, sub1.as_ptr() as *const u8), 0);
+        assert_eq!(str_contains(s.as_ptr() as *const u8, sub2.as_ptr() as *const u8), 1);
+    }
+
+    #[test]
+    fn test_str_length_various_sizes() {
+        let strings = vec![
+            ("", 0),
+            ("a", 1),
+            ("hello", 5),
+            ("hello world", 11),
+            ("The quick brown fox jumps over the lazy dog", 43),
+        ];
+
+        for (text, expected_len) in strings {
+            let s = CString::new(text).unwrap();
+            assert_eq!(str_length(s.as_ptr() as *const u8), expected_len);
+        }
+    }
 }

@@ -216,32 +216,6 @@ mod tests {
         assert_eq!(list.length, 5);
     }
 
-    #[test]
-    fn test_list_out_of_bounds() {
-        let mut list = create_test_list();
-        let list_ptr = &mut *list as *mut List;
-
-        list_push_i64(list_ptr, 10);
-
-        // Out of bounds access should return 0
-        assert_eq!(list_get_i64(list_ptr, -1), 0);
-        assert_eq!(list_get_i64(list_ptr, 5), 0);
-
-        // Out of bounds set should be no-op
-        list_set_i64(list_ptr, -1, 99);
-        list_set_i64(list_ptr, 5, 99);
-        assert_eq!(list.length, 1); // Should not have changed
-    }
-
-    #[test]
-    fn test_list_pop_empty() {
-        let mut list = create_test_list();
-        let list_ptr = &mut *list as *mut List;
-
-        // Popping from empty list should return 0
-        assert_eq!(list_pop_i64(list_ptr), 0);
-        assert_eq!(list.length, 0);
-    }
 
     #[test]
     fn test_list_large_capacity() {

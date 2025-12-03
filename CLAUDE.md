@@ -150,9 +150,12 @@ See `docs/TESTING.md` for testing guidelines.
 
 ```bash
 make test            # Run all tests
+make test-rust       # Run all rust tests
 ./ws test            # Alternative test runner
 ./ws run test.ws     # Run individual test
 ```
+
+When making changes ALWAYS run `make test test-rust` to verify no regressions!
 
 **Test structure:**
 - Tests in `tests/test_*.ws`

@@ -160,4 +160,143 @@ mod tests {
             rc_release(ptr);
         }
     }
+
+    #[test]
+    fn test_rc_zero_size_alloc() {
+        unsafe {
+            // Zero size should return null
+            let ptr = rc_alloc(0);
+            assert!(ptr.is_null());
+
+            // Negative size should return null
+            let ptr2 = rc_alloc(-10);
+            assert!(ptr2.is_null());
+        }
+    }
+
+    #[test]
+    fn test_rc_large_allocation() {
+        unsafe {
+            // Test large but reasonable allocation (1MB)
+            let ptr = rc_alloc(1024 * 1024);
+            assert!(!ptr.is_null());
+            assert_eq!(rc_get_count(ptr), 1);
+
+            // Write some data to verify allocation worked
+            *ptr = 42;
+            *ptr.add(1024 * 1024 - 1) = 99;
+
+            assert_eq!(*ptr, 42);
+            assert_eq!(*ptr.add(1024 * 1024 - 1), 99);
+
+            rc_release(ptr);
+        }
+    }
+
+    #[test]
+    fn test_rc_multiple_objects() {
+        unsafe {
+            // Create multiple RC objects simultaneously
+            let ptr1 = rc_alloc(50);
+            let ptr2 = rc_alloc(100);
+            let ptr3 = rc_alloc(150);
+
+            assert!(!ptr1.is_null());
+            assert!(!ptr2.is_null());
+            assert!(!ptr3.is_null());
+
+            // Each should have independent ref count
+            assert_eq!(rc_get_count(ptr1), 1);
+            assert_eq!(rc_get_count(ptr2), 1);
+            assert_eq!(rc_get_count(ptr3), 1);
+
+            // Retain one multiple times
+            rc_retain(ptr2);
+            rc_retain(ptr2);
+            assert_eq!(rc_get_count(ptr1), 1);
+            assert_eq!(rc_get_count(ptr2), 3);
+            assert_eq!(rc_get_count(ptr3), 1);
+
+            // Release in different order
+            rc_release(ptr1);
+            rc_release(ptr2);
+            assert_eq!(rc_get_count(ptr2), 2);
+            rc_release(ptr3);
+            rc_release(ptr2);
+            assert_eq!(rc_get_count(ptr2), 1);
+            rc_release(ptr2);
+        }
+    }
+
+
+    #[test]
+    fn test_rc_valid_range() {
+        unsafe {
+            let ptr = rc_alloc(100);
+
+            // Normal ref count should be valid
+            assert_eq!(rc_is_valid(ptr), 1);
+
+            // Retain many times - should still be valid
+            for _ in 0..100 {
+                rc_retain(ptr);
+            }
+            assert_eq!(rc_get_count(ptr), 101);
+            assert_eq!(rc_is_valid(ptr), 1);
+
+            // Release back down
+            for _ in 0..100 {
+                rc_release(ptr);
+            }
+            assert_eq!(rc_get_count(ptr), 1);
+
+            rc_release(ptr);
+        }
+    }
+
+    #[test]
+    fn test_rc_get_count_edge_cases() {
+        unsafe {
+            // Null pointer
+            assert_eq!(rc_get_count(std::ptr::null_mut()), 0);
+
+            // Fresh allocation
+            let ptr = rc_alloc(50);
+            assert_eq!(rc_get_count(ptr), 1);
+
+            // After retains
+            for i in 2..=10 {
+                rc_retain(ptr);
+                assert_eq!(rc_get_count(ptr), i);
+            }
+
+            // After releases
+            for i in (1..10).rev() {
+                rc_release(ptr);
+                assert_eq!(rc_get_count(ptr), i);
+            }
+
+            rc_release(ptr);
+        }
+    }
+
+    #[test]
+    fn test_rc_size_preservation() {
+        unsafe {
+            // Allocate different sizes
+            let sizes = vec![1, 8, 64, 256, 1024, 4096];
+
+            for size in sizes {
+                let ptr = rc_alloc(size);
+                assert!(!ptr.is_null());
+
+                // Get header and verify size was stored
+                let header = (ptr as *mut RcHeader).sub(1);
+                assert_eq!((*header).size, size);
+                assert_eq!((*header).ref_count, 1);
+
+                rc_release(ptr);
+            }
+        }
+    }
 }

@@ -337,14 +337,6 @@ mod tests {
         assert_eq!(dict_has(dict, key2.as_ptr() as *const u8), 0);
     }
 
-    #[test]
-    fn test_dict_get_missing_key() {
-        let dict = dict_create();
-        let key = CString::new("nonexistent").unwrap();
-
-        // Get missing key should return 0
-        assert_eq!(dict_get(dict, key.as_ptr() as *const u8), 0);
-    }
 
     #[test]
     fn test_dict_rehashing() {

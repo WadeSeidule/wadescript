@@ -73,7 +73,7 @@ if [ "$COMMAND" != "test" ]; then
 
     # Get the base name without extension
     BASENAME=$(basename "$SOURCE_FILE" .ws)
-    OUTPUT_NAME="$BASENAME"
+    OUTPUT_NAME="$BASENAME.o"
 fi
 
 case "$COMMAND" in

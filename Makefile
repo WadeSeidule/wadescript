@@ -151,25 +151,18 @@ clean:
 	@echo "$(YELLOW)Cleaning debug build artifacts...$(NC)"
 	@$(CARGO) clean --profile dev
 	@rm -f *.o examples/*.o tests/*.o
-	@rm -f hello fibonacci factorial loops conditions print_demo for_loops_demo \
-		range_demo list_methods import_demo multi_import lists_demo comprehensive \
-		class_demo test_basic_types test_comparisons test_control_flow \
-		test_dictionaries test_for_loops test_functions test_helpers test_imports \
-		test_integration test_lists
+	@rm -rf *.dSYM/
 	@echo "$(GREEN)✓ Debug artifacts cleaned$(NC)"
 
 # Clean all artifacts (debug and release)
 .PHONY: clean-all
 clean-all:
-	@echo "$(YELLOW)Cleaning all build artifacts...$(NC)"
-	@$(CARGO) clean
+	@echo "$(YELLOW)Cleaning debug build artifacts...$(NC)"
+	@$(CARGO) clean --profile dev
 	@rm -f *.o examples/*.o tests/*.o
-	@rm -f hello fibonacci factorial loops conditions print_demo for_loops_demo \
-		range_demo list_methods import_demo multi_import lists_demo comprehensive \
-		class_demo test_basic_types test_comparisons test_control_flow \
-		test_dictionaries test_for_loops test_functions test_helpers test_imports \
-		test_integration test_lists
-	@echo "$(GREEN)✓ All artifacts cleaned$(NC)"
+	@rm -rf *.dSYM/
+	@echo "$(GREEN)✓ Debug artifacts cleaned$(NC)"
+
 
 # Show build information
 .PHONY: info

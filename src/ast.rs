@@ -10,6 +10,7 @@ pub enum Type {
     Array(Box<Type>, usize),        // Fixed-size array: int[5]
     List(Box<Type>),                // Dynamic list: list[int]
     Dict(Box<Type>, Box<Type>),     // Dictionary: dict[str, int]
+    Exception,                      // Exception object type
     Custom(String),
 }
 
@@ -24,6 +25,7 @@ impl fmt::Display for Type {
             Type::Array(elem_type, size) => write!(f, "{}[{}]", elem_type, size),
             Type::List(elem_type) => write!(f, "list[{}]", elem_type),
             Type::Dict(key_type, val_type) => write!(f, "dict[{}, {}]", key_type, val_type),
+            Type::Exception => write!(f, "Exception"),
             Type::Custom(name) => write!(f, "{}", name),
         }
     }
@@ -85,11 +87,28 @@ pub enum Statement {
         condition: Expression,
         message: Option<String>,
     },
+    Try {
+        try_block: Vec<Statement>,
+        except_clauses: Vec<ExceptClause>,
+        finally_block: Option<Vec<Statement>>,
+    },
+    Raise {
+        exception_type: String,  // e.g., "ValueError", "KeyError"
+        message: Expression,     // Error message
+        line: usize,
+    },
     Expression(Expression),
     Pass,
     Import {
         path: String,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct ExceptClause {
+    pub exception_type: Option<String>,  // None means catch all
+    pub var_name: Option<String>,        // Variable to bind exception to
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug, Clone)]

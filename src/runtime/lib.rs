@@ -8,6 +8,7 @@
 pub mod list;
 pub mod dict;
 pub mod string;
+pub mod exceptions;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -18,6 +19,7 @@ use backtrace::Backtrace;
 pub use list::*;
 pub use dict::*;
 pub use string::*;
+pub use exceptions::*;
 
 // Global call stack for stack traces
 static CALL_STACK: Mutex<Vec<String>> = Mutex::new(Vec::new());

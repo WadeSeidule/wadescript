@@ -102,6 +102,12 @@ impl<'ctx> CodeGen<'ctx> {
                     .ptr_type(AddressSpace::default())
                     .as_basic_type_enum()
             }
+            Type::Exception => {
+                // Exception object is a pointer to a struct
+                self.context
+                    .ptr_type(AddressSpace::default())
+                    .as_basic_type_enum()
+            }
             Type::Custom(_) => self
                 .context
                 .ptr_type(AddressSpace::default())
@@ -448,6 +454,8 @@ impl<'ctx> CodeGen<'ctx> {
     fn declare_runtime_error_functions(&mut self) {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let void_type = self.context.void_type();
+        let i64_type = self.context.i64_type();
+        let i32_type = self.context.i32_type();
 
         // push_call_stack(func_name_ptr) -> void
         let push_call_stack_type = void_type.fn_type(&[ptr_type.into()], false);
@@ -458,6 +466,44 @@ impl<'ctx> CodeGen<'ctx> {
         let pop_call_stack_type = void_type.fn_type(&[], false);
         let pop_call_stack_fn = self.module.add_function("pop_call_stack", pop_call_stack_type, None);
         self.functions.insert("pop_call_stack".to_string(), pop_call_stack_fn);
+
+        // exception_raise(type, message, file, line) -> noreturn
+        let exception_raise_type = void_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), i64_type.into()],
+            false
+        );
+        let exception_raise_fn = self.module.add_function("exception_raise", exception_raise_type, None);
+        self.functions.insert("exception_raise".to_string(), exception_raise_fn);
+
+        // exception_push_handler(jmp_buf) -> void
+        let exception_push_handler_type = void_type.fn_type(&[ptr_type.into()], false);
+        let exception_push_handler_fn = self.module.add_function("exception_push_handler", exception_push_handler_type, None);
+        self.functions.insert("exception_push_handler".to_string(), exception_push_handler_fn);
+
+        // exception_pop_handler() -> void
+        let exception_pop_handler_type = void_type.fn_type(&[], false);
+        let exception_pop_handler_fn = self.module.add_function("exception_pop_handler", exception_pop_handler_type, None);
+        self.functions.insert("exception_pop_handler".to_string(), exception_pop_handler_fn);
+
+        // exception_get_current() -> ptr
+        let exception_get_current_type = ptr_type.fn_type(&[], false);
+        let exception_get_current_fn = self.module.add_function("exception_get_current", exception_get_current_type, None);
+        self.functions.insert("exception_get_current".to_string(), exception_get_current_fn);
+
+        // exception_matches(exc, type) -> i32
+        let exception_matches_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let exception_matches_fn = self.module.add_function("exception_matches", exception_matches_type, None);
+        self.functions.insert("exception_matches".to_string(), exception_matches_fn);
+
+        // exception_clear() -> void
+        let exception_clear_type = void_type.fn_type(&[], false);
+        let exception_clear_fn = self.module.add_function("exception_clear", exception_clear_type, None);
+        self.functions.insert("exception_clear".to_string(), exception_clear_fn);
+
+        // setjmp(jmp_buf) -> i32
+        let setjmp_type = i32_type.fn_type(&[ptr_type.into()], false);
+        let setjmp_fn = self.module.add_function("setjmp", setjmp_type, None);
+        self.functions.insert("setjmp".to_string(), setjmp_fn);
     }
 
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
@@ -990,6 +1036,213 @@ impl<'ctx> CodeGen<'ctx> {
 
                 // Continue block: assertion passed
                 self.builder.position_at_end(continue_block);
+                Ok(())
+            }
+
+            Statement::Try { try_block, except_clauses, finally_block } => {
+                let function = self.current_function.ok_or("Try statement outside of function")?;
+
+                // Allocate jmp_buf on stack (200 bytes)
+                let jmp_buf_type = self.context.i8_type().array_type(200);
+                let jmp_buf_alloca = self.builder.build_alloca(jmp_buf_type, "jmp_buf").unwrap();
+
+                // Push exception handler
+                let exception_push_handler_fn = *self.functions.get("exception_push_handler").unwrap();
+                self.builder.build_call(
+                    exception_push_handler_fn,
+                    &[jmp_buf_alloca.into()],
+                    ""
+                ).unwrap();
+
+                // Call setjmp
+                let setjmp_fn = *self.functions.get("setjmp").unwrap();
+                let setjmp_result = self.builder.build_call(
+                    setjmp_fn,
+                    &[jmp_buf_alloca.into()],
+                    "setjmp_result"
+                ).unwrap().try_as_basic_value().left().unwrap().into_int_value();
+
+                // Check if setjmp returned 0 (normal) or 1 (exception)
+                let is_normal = self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    setjmp_result,
+                    self.context.i32_type().const_zero(),
+                    "is_normal"
+                ).unwrap();
+
+                let try_normal_block = self.context.append_basic_block(function, "try_normal");
+                let try_exception_block = self.context.append_basic_block(function, "try_exception");
+                let finally_block_label = self.context.append_basic_block(function, "finally");
+                let end_block = self.context.append_basic_block(function, "try_end");
+
+                self.builder.build_conditional_branch(is_normal, try_normal_block, try_exception_block).unwrap();
+
+                // Normal path: execute try block
+                self.builder.position_at_end(try_normal_block);
+                for stmt in try_block {
+                    self.compile_statement(stmt)?;
+                }
+                // If we reach here, no exception was raised
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(finally_block_label).unwrap();
+                }
+
+                // Exception path: match and handle exception
+                self.builder.position_at_end(try_exception_block);
+
+                // Get current exception
+                let exception_get_current_fn = *self.functions.get("exception_get_current").unwrap();
+                let current_exc = self.builder.build_call(
+                    exception_get_current_fn,
+                    &[],
+                    "current_exc"
+                ).unwrap().try_as_basic_value().left().unwrap().into_pointer_value();
+
+                // Get exception handler functions (needed in finally block)
+                let exception_pop_handler_fn = *self.functions.get("exception_pop_handler").unwrap();
+
+                // If no except clauses, jump straight to unhandled
+                if except_clauses.is_empty() {
+                    let unhandled_block = self.context.append_basic_block(function, "unhandled");
+                    self.builder.build_unconditional_branch(unhandled_block).unwrap();
+
+                    // Unhandled exception: pop handler and re-raise
+                    self.builder.position_at_end(unhandled_block);
+                    self.builder.build_call(exception_pop_handler_fn, &[], "").unwrap();
+                    // Execute finally before re-raising
+                    if finally_block.is_some() {
+                        self.builder.build_unconditional_branch(finally_block_label).unwrap();
+                    } else {
+                        // TODO: Re-raise the exception
+                        self.builder.build_unreachable().unwrap();
+                    }
+                } else {
+                    // Generate except clause matching
+                    let mut next_except_block = self.context.append_basic_block(function, "except_check");
+                    self.builder.build_unconditional_branch(next_except_block).unwrap();
+
+                    let unhandled_block = self.context.append_basic_block(function, "unhandled");
+
+                    for (i, except_clause) in except_clauses.iter().enumerate() {
+                    self.builder.position_at_end(next_except_block);
+
+                    let except_body_block = self.context.append_basic_block(function, &format!("except_body_{}", i));
+                    let next_check = if i < except_clauses.len() - 1 {
+                        self.context.append_basic_block(function, &format!("except_check_{}", i + 1))
+                    } else {
+                        unhandled_block
+                    };
+
+                    if let Some(ref exc_type) = except_clause.exception_type {
+                        // Check if exception matches this type
+                        let exc_type_str = self.builder.build_global_string_ptr(exc_type, "exc_type_check").unwrap();
+                        let exception_matches_fn = *self.functions.get("exception_matches").unwrap();
+                        let matches = self.builder.build_call(
+                            exception_matches_fn,
+                            &[current_exc.into(), exc_type_str.as_pointer_value().into()],
+                            "matches"
+                        ).unwrap().try_as_basic_value().left().unwrap().into_int_value();
+
+                        let matches_bool = self.builder.build_int_compare(
+                            IntPredicate::NE,
+                            matches,
+                            self.context.i32_type().const_zero(),
+                            "matches_bool"
+                        ).unwrap();
+
+                        self.builder.build_conditional_branch(matches_bool, except_body_block, next_check).unwrap();
+                    } else {
+                        // Catch-all except clause
+                        self.builder.build_unconditional_branch(except_body_block).unwrap();
+                    }
+
+                    // Execute except body
+                    self.builder.position_at_end(except_body_block);
+
+                    // If there's a variable binding, declare it
+                    if let Some(ref var_name) = except_clause.var_name {
+                        let exc_ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let exc_var_alloca = self.builder.build_alloca(exc_ptr_type, var_name).unwrap();
+                        self.builder.build_store(exc_var_alloca, current_exc).unwrap();
+                        self.variables.insert(var_name.clone(), (exc_var_alloca, exc_ptr_type.as_basic_type_enum(), Type::Exception));
+                    }
+
+                    for stmt in &except_clause.body {
+                        self.compile_statement(stmt)?;
+                    }
+
+                    // Clear exception
+                    let exception_clear_fn = *self.functions.get("exception_clear").unwrap();
+                    self.builder.build_call(exception_clear_fn, &[], "").unwrap();
+
+                    // Remove variable binding if present
+                    if let Some(ref var_name) = except_clause.var_name {
+                        self.variables.remove(var_name);
+                    }
+
+                    if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                        self.builder.build_unconditional_branch(finally_block_label).unwrap();
+                    }
+
+                        next_except_block = next_check;
+                    }
+
+                    // Unhandled exception: pop handler and re-raise
+                    self.builder.position_at_end(unhandled_block);
+                    self.builder.build_call(exception_pop_handler_fn, &[], "").unwrap();
+                    // TODO: Re-raise the exception
+                    self.builder.build_unreachable().unwrap();
+                }
+
+                // Finally block
+                self.builder.position_at_end(finally_block_label);
+
+                // Pop exception handler
+                self.builder.build_call(exception_pop_handler_fn, &[], "").unwrap();
+
+                if let Some(finally) = finally_block {
+                    for stmt in finally {
+                        self.compile_statement(stmt)?;
+                    }
+                }
+
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(end_block).unwrap();
+                }
+
+                self.builder.position_at_end(end_block);
+                Ok(())
+            }
+
+            Statement::Raise { exception_type, message, line } => {
+                // Compile the message expression
+                let message_value = self.compile_expression(message)?;
+
+                // Get exception type as string
+                let type_str = self.builder.build_global_string_ptr(exception_type, "exc_type").unwrap();
+
+                // Get source file name
+                let file_str = self.builder.build_global_string_ptr(&self.source_file, "exc_file").unwrap();
+
+                // Create line number constant
+                let line_const = self.context.i64_type().const_int(*line as u64, false);
+
+                // Call exception_raise(type, message, file, line)
+                let exception_raise_fn = *self.functions.get("exception_raise").unwrap();
+                self.builder.build_call(
+                    exception_raise_fn,
+                    &[
+                        type_str.as_pointer_value().into(),
+                        message_value.into(),
+                        file_str.as_pointer_value().into(),
+                        line_const.into(),
+                    ],
+                    ""
+                ).unwrap();
+
+                // exception_raise doesn't return, but we need unreachable to mark this
+                self.builder.build_unreachable().unwrap();
+
                 Ok(())
             }
 

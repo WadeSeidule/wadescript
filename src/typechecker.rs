@@ -302,6 +302,48 @@ impl TypeChecker {
                 Ok(())
             }
 
+            Statement::Try { try_block, except_clauses, finally_block } => {
+                // Type check try block
+                for stmt in try_block {
+                    self.check_statement(stmt)?;
+                }
+
+                // Type check except clauses
+                for except_clause in except_clauses {
+                    // If there's a variable binding, declare it with type Exception
+                    if let Some(ref var_name) = except_clause.var_name {
+                        self.enter_scope();
+                        self.declare_variable(var_name.clone(), Type::Exception);
+                    }
+
+                    for stmt in &except_clause.body {
+                        self.check_statement(stmt)?;
+                    }
+
+                    if except_clause.var_name.is_some() {
+                        self.exit_scope();
+                    }
+                }
+
+                // Type check finally block
+                if let Some(finally) = finally_block {
+                    for stmt in finally {
+                        self.check_statement(stmt)?;
+                    }
+                }
+
+                Ok(())
+            }
+
+            Statement::Raise { exception_type: _, message, line: _ } => {
+                // Check that message is a string
+                let msg_type = self.check_expression(message)?;
+                if msg_type != Type::Str {
+                    return Err(format!("Exception message must be str, got {}", msg_type));
+                }
+                Ok(())
+            }
+
             Statement::Break | Statement::Continue | Statement::Pass | Statement::Import { .. } => Ok(()),
 
             Statement::Expression(expr) => {

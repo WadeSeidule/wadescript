@@ -1,0 +1,9 @@
+Test 1: Exception caught
+In try
+In except
+In finally
+After try-except-finally
+Test 2: No exception
+In try 2
+In finally 2
+Done

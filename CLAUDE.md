@@ -8,6 +8,7 @@ WadeScript is a statically-typed programming language that compiles to native co
 - Static type system with type inference
 - Functions with explicit return types
 - Control flow (if/elif/else, while, for loops, break/continue)
+- Exception handling (try/except/finally, raise)
 - Data structures (lists, dictionaries, arrays)
 - String methods (upper, lower, contains) and string iteration
 - Classes with methods and fields
@@ -466,6 +467,64 @@ name: str = "Alice"
 age: int = 25
 msg: str = f"Name: {name}, Age: {age}"
 ```
+
+### Exception Handling
+```wadescript
+# Basic try/except
+try {
+    raise ValueError("Something went wrong")
+} except ValueError {
+    print_str("Caught ValueError")
+}
+
+# Multiple except clauses
+try {
+    # code that might fail
+} except ValueError {
+    print_str("Value error")
+} except KeyError {
+    print_str("Key error")
+}
+
+# Exception variable binding
+try {
+    raise RuntimeError("Error message")
+} except RuntimeError as e {
+    # e is the exception object (pointer)
+    # Note: accessing e.message not yet implemented
+    print_str("Caught error")
+}
+
+# Finally block (always executes)
+try {
+    # code
+} except ValueError {
+    # handle
+} finally {
+    # cleanup code - always runs
+}
+
+# Raise exceptions
+def divide(a: int, b: int) -> int {
+    if b == 0 {
+        raise ValueError("Division by zero")
+    }
+    return a / b
+}
+```
+
+**Built-in Exception Types:**
+- `ValueError` - Invalid value
+- `KeyError` - Dictionary key not found
+- `IndexError` - List/array index out of bounds (raised automatically)
+- `RuntimeError` - General runtime error
+- `TypeError` - Type mismatch (raised automatically during type checking)
+
+**Exception System:**
+- Uses setjmp/longjmp for efficient exception handling
+- Zero overhead when no exception is raised
+- Exceptions unwind the stack automatically
+- Finally blocks always execute, even if exception occurs
 
 ## Important Notes
 

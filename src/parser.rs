@@ -119,6 +119,8 @@ impl Parser {
                 self.skip_newlines();
                 Statement::Assert { condition, message }
             }
+            Token::Try => self.try_statement(),
+            Token::Raise => self.raise_statement(),
             Token::Pass => {
                 self.advance();
                 self.skip_newlines();
@@ -383,6 +385,86 @@ impl Parser {
         };
         self.skip_newlines();
         Statement::Return(value)
+    }
+
+    fn try_statement(&mut self) -> Statement {
+        self.consume(Token::Try, "Expected 'try'");
+        self.consume(Token::LeftBrace, "Expected '{' after try");
+        let try_block = self.block();
+        self.consume(Token::RightBrace, "Expected '}' after try body");
+
+        let mut except_clauses = Vec::new();
+        while self.match_token(&[Token::Except]) {
+            // Parse exception type (optional)
+            let exception_type = if let Token::Identifier(exc_type) = self.peek() {
+                let exc = exc_type.clone();
+                self.advance();
+                Some(exc)
+            } else {
+                None // Catch all
+            };
+
+            // Parse "as var_name" (optional)
+            let var_name = if self.match_token(&[Token::As]) {
+                if let Token::Identifier(var) = self.advance() {
+                    Some(var)
+                } else {
+                    panic!("Expected variable name after 'as'");
+                }
+            } else {
+                None
+            };
+
+            self.consume(Token::LeftBrace, "Expected '{' after except clause");
+            let body = self.block();
+            self.consume(Token::RightBrace, "Expected '}' after except body");
+
+            except_clauses.push(ExceptClause {
+                exception_type,
+                var_name,
+                body,
+            });
+        }
+
+        // Parse finally block (optional)
+        let finally_block = if self.match_token(&[Token::Finally]) {
+            self.consume(Token::LeftBrace, "Expected '{' after finally");
+            let block = self.block();
+            self.consume(Token::RightBrace, "Expected '}' after finally body");
+            Some(block)
+        } else {
+            None
+        };
+
+        Statement::Try {
+            try_block,
+            except_clauses,
+            finally_block,
+        }
+    }
+
+    fn raise_statement(&mut self) -> Statement {
+        let line = self.tokens[self.current].location.line;
+        self.consume(Token::Raise, "Expected 'raise'");
+
+        // Parse exception type (required)
+        let exception_type = if let Token::Identifier(exc_type) = self.advance() {
+            exc_type
+        } else {
+            panic!("Expected exception type after 'raise'");
+        };
+
+        // Parse message in parentheses
+        self.consume(Token::LeftParen, "Expected '(' after exception type");
+        let message = self.expression();
+        self.consume(Token::RightParen, "Expected ')' after exception message");
+        self.skip_newlines();
+
+        Statement::Raise {
+            exception_type,
+            message,
+            line,
+        }
     }
 
     fn block(&mut self) -> Vec<Statement> {
@@ -1470,6 +1552,139 @@ if x > 10 {
         let program = parse_source("x = False");
         if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
             assert!(matches!(**value, Expression::BoolLiteral(false)));
+        }
+    }
+
+    #[test]
+    fn test_parse_raise_statement() {
+        let program = parse_source(r#"raise ValueError("Test error")"#);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Raise { exception_type, message, line: _ } = &program.statements[0] {
+            assert_eq!(exception_type, "ValueError");
+            assert!(matches!(message, Expression::StringLiteral(_)));
+        } else {
+            panic!("Expected Raise statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_except() {
+        let source = r#"
+try {
+    x = 1
+} except ValueError {
+    y = 2
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Try { try_block, except_clauses, finally_block } = &program.statements[0] {
+            assert_eq!(try_block.len(), 1);
+            assert_eq!(except_clauses.len(), 1);
+            assert_eq!(except_clauses[0].exception_type, Some("ValueError".to_string()));
+            assert_eq!(except_clauses[0].var_name, None);
+            assert_eq!(except_clauses[0].body.len(), 1);
+            assert!(finally_block.is_none());
+        } else {
+            panic!("Expected Try statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_except_with_variable() {
+        let source = r#"
+try {
+    x = 1
+} except ValueError as e {
+    y = 2
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Try { try_block, except_clauses, finally_block } = &program.statements[0] {
+            assert_eq!(try_block.len(), 1);
+            assert_eq!(except_clauses.len(), 1);
+            assert_eq!(except_clauses[0].exception_type, Some("ValueError".to_string()));
+            assert_eq!(except_clauses[0].var_name, Some("e".to_string()));
+            assert_eq!(except_clauses[0].body.len(), 1);
+            assert!(finally_block.is_none());
+        } else {
+            panic!("Expected Try statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_multiple_except() {
+        let source = r#"
+try {
+    x = 1
+} except ValueError {
+    y = 2
+} except KeyError {
+    z = 3
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Try { try_block, except_clauses, finally_block } = &program.statements[0] {
+            assert_eq!(try_block.len(), 1);
+            assert_eq!(except_clauses.len(), 2);
+            assert_eq!(except_clauses[0].exception_type, Some("ValueError".to_string()));
+            assert_eq!(except_clauses[1].exception_type, Some("KeyError".to_string()));
+            assert!(finally_block.is_none());
+        } else {
+            panic!("Expected Try statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_finally() {
+        let source = r#"
+try {
+    x = 1
+} finally {
+    y = 2
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Try { try_block, except_clauses, finally_block } = &program.statements[0] {
+            assert_eq!(try_block.len(), 1);
+            assert_eq!(except_clauses.len(), 0);
+            assert!(finally_block.is_some());
+            assert_eq!(finally_block.as_ref().unwrap().len(), 1);
+        } else {
+            panic!("Expected Try statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_except_finally() {
+        let source = r#"
+try {
+    x = 1
+} except ValueError {
+    y = 2
+} finally {
+    z = 3
+}
+"#;
+        let program = parse_source(source);
+        assert_eq!(program.statements.len(), 1);
+
+        if let Statement::Try { try_block, except_clauses, finally_block } = &program.statements[0] {
+            assert_eq!(try_block.len(), 1);
+            assert_eq!(except_clauses.len(), 1);
+            assert_eq!(except_clauses[0].exception_type, Some("ValueError".to_string()));
+            assert!(finally_block.is_some());
+            assert_eq!(finally_block.as_ref().unwrap().len(), 1);
+        } else {
+            panic!("Expected Try statement");
         }
     }
 }

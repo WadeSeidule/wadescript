@@ -149,8 +149,8 @@ case "$COMMAND" in
         echo -e "${BLUE}==============================${NC}"
         echo ""
 
-        # Find all test files
-        TEST_FILES=$(find "$TESTS_DIR" -maxdepth 1 -name "test_*.ws" -type f | sort)
+        # Find all test files (exclude error tests which start with test_error_)
+        TEST_FILES=$(find "$TESTS_DIR" -maxdepth 1 -name "test_*.ws" -type f | grep -v "test_error_" | sort)
 
         if [ -z "$TEST_FILES" ]; then
             echo -e "${YELLOW}No test files found in $TESTS_DIR${NC}"

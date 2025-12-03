@@ -433,7 +433,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Call { callee, args } => {
+            Expression::Call { callee, args, line: _ } => {
                 // Check if this is a module.function() call
                 if let Expression::MemberAccess { object, member } = &**callee {
                     if let Expression::Variable(module_name) = &**object {
@@ -678,7 +678,7 @@ impl TypeChecker {
                 Ok(Type::Dict(Box::new(key_type), Box::new(val_type)))
             }
 
-            Expression::Index { object, index } => {
+            Expression::Index { object, index, line: _ } => {
                 let obj_type = self.check_expression(object)?;
                 let idx_type = self.check_expression(index)?;
 
@@ -705,7 +705,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::IndexAssignment { object, index, value } => {
+            Expression::IndexAssignment { object, index, value, line: _ } => {
                 let obj_type = self.lookup_variable(object)
                     .ok_or_else(|| format!("Undefined variable '{}'", object))?;
                 let idx_type = self.check_expression(index)?;

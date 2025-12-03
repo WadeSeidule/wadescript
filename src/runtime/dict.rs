@@ -1,9 +1,14 @@
 use std::alloc::{alloc, alloc_zeroed, Layout};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::ptr;
 
 const INITIAL_CAPACITY: i64 = 16;
 const LOAD_FACTOR_THRESHOLD: f64 = 0.75;
+
+// Import the runtime_error function
+extern "C" {
+    fn runtime_error(message: *const i8);
+}
 
 /// Dictionary entry structure (for chaining)
 #[repr(C)]
@@ -137,8 +142,14 @@ pub extern "C" fn dict_create() -> *mut Dict {
 #[no_mangle]
 pub extern "C" fn dict_set(dict: *mut Dict, key: *const u8, value: i64) {
     unsafe {
-        if dict.is_null() || key.is_null() {
-            return;
+        if dict.is_null() {
+            let msg = CString::new("Dictionary set error: null dictionary").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        if key.is_null() {
+            let msg = CString::new("Dictionary set error: null key").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         let dict_ref = &mut *dict;
@@ -181,12 +192,18 @@ pub extern "C" fn dict_set(dict: *mut Dict, key: *const u8, value: i64) {
     }
 }
 
-/// Get a value from the dictionary (returns 0 if not found)
+/// Get a value from the dictionary (errors if key not found)
 #[no_mangle]
 pub extern "C" fn dict_get(dict: *const Dict, key: *const u8) -> i64 {
     unsafe {
-        if dict.is_null() || key.is_null() {
-            return 0;
+        if dict.is_null() {
+            let msg = CString::new("Dictionary access error: null dictionary").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        if key.is_null() {
+            let msg = CString::new("Dictionary access error: null key").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         let dict_ref = &*dict;
@@ -204,7 +221,14 @@ pub extern "C" fn dict_get(dict: *const Dict, key: *const u8) -> i64 {
             entry = (*entry).next;
         }
 
-        0 // Return 0 if key not found
+        // Key not found - report error with key name
+        let key_str = CStr::from_ptr(key as *const i8).to_string_lossy();
+        let msg = CString::new(format!(
+            "Dictionary key error: key '{}' not found in dictionary",
+            key_str
+        )).unwrap();
+        runtime_error(msg.as_ptr());
+        0 // Unreachable, but needed for type checker
     }
 }
 

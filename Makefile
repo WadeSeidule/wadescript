@@ -112,6 +112,15 @@ test-rust:
 	@echo "$(BLUE)Running Rust test suite...$(NC)"
 	@cargo test
 
+.PHONY: test-errors
+test-errors: debug
+	@echo "$(BLUE)Running error test suite...$(NC)"
+	@./run_error_tests.sh
+
+.PHONY: test-all
+test-all: test test-errors
+	@echo "$(GREEN)✓ All tests passed!$(NC)"
+
 # Compile all examples (skip library files)
 .PHONY: examples
 examples: debug

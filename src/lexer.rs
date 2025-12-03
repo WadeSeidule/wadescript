@@ -1,5 +1,35 @@
 use std::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SourceLocation {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl SourceLocation {
+    pub fn new(line: usize, column: usize) -> Self {
+        SourceLocation { line, column }
+    }
+}
+
+impl fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {}, column {}", self.line, self.column)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TokenWithLocation {
+    pub token: Token,
+    pub location: SourceLocation,
+}
+
+impl TokenWithLocation {
+    pub fn new(token: Token, location: SourceLocation) -> Self {
+        TokenWithLocation { token, location }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]  // Some tokens reserved for future features
 pub enum Token {
@@ -91,6 +121,8 @@ pub struct Lexer {
     input: Vec<char>,
     position: usize,
     current_char: Option<char>,
+    line: usize,
+    column: usize,
 }
 
 impl Lexer {
@@ -101,10 +133,26 @@ impl Lexer {
             input: chars,
             position: 0,
             current_char,
+            line: 1,
+            column: 1,
         }
     }
 
+    pub fn current_location(&self) -> SourceLocation {
+        SourceLocation::new(self.line, self.column)
+    }
+
+    fn make_token(&self, token: Token, location: SourceLocation) -> TokenWithLocation {
+        TokenWithLocation::new(token, location)
+    }
+
     fn advance(&mut self) {
+        if let Some('\n') = self.current_char {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
         self.position += 1;
         self.current_char = self.input.get(self.position).copied();
     }
@@ -264,7 +312,7 @@ impl Lexer {
         }
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> TokenWithLocation {
         loop {
             self.skip_whitespace();
 
@@ -273,155 +321,181 @@ impl Lexer {
                 continue;
             }
 
+            // Capture location at start of token
+            let location = self.current_location();
+
             match self.current_char {
-                None => return Token::Eof,
+                None => return TokenWithLocation::new(Token::Eof, location),
                 Some('\n') => {
                     self.advance();
-                    return Token::Newline;
+                    return TokenWithLocation::new(Token::Newline, location);
                 }
-                Some(ch) if ch.is_ascii_digit() => return self.read_number(),
+                Some(ch) if ch.is_ascii_digit() => {
+                    let token = self.read_number();
+                    return self.make_token(token, location);
+                }
                 Some('f') => {
                     // Check if this is an f-string
                     if self.position + 1 < self.input.len() {
                         let next_char = self.input[self.position + 1];
                         if next_char == '"' || next_char == '\'' {
                             self.advance(); // skip 'f'
-                            return self.read_fstring(next_char);
+                            let token = self.read_fstring(next_char);
+                            return self.make_token(token, location);
                         }
                     }
                     // Otherwise it's just an identifier
-                    return self.read_identifier();
+                    let token = self.read_identifier();
+                    return self.make_token(token, location);
                 }
-                Some(ch) if ch.is_alphabetic() || ch == '_' => return self.read_identifier(),
-                Some('"') => return self.read_string('"'),
-                Some('\'') => return self.read_string('\''),
+                Some(ch) if ch.is_alphabetic() || ch == '_' => {
+                    let token = self.read_identifier();
+                    return self.make_token(token, location);
+                }
+                Some('"') => {
+                    let token = self.read_string('"');
+                    return self.make_token(token, location);
+                }
+                Some('\'') => {
+                    let token = self.read_string('\'');
+                    return self.make_token(token, location);
+                }
                 Some('+') => {
                     self.advance();
-                    if self.current_char == Some('+') {
+                    let token = if self.current_char == Some('+') {
                         self.advance();
-                        return Token::PlusPlus;
-                    }
-                    if self.current_char == Some('=') {
+                        Token::PlusPlus
+                    } else if self.current_char == Some('=') {
                         self.advance();
-                        return Token::PlusEqual;
-                    }
-                    return Token::Plus;
+                        Token::PlusEqual
+                    } else {
+                        Token::Plus
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('-') => {
                     self.advance();
-                    if self.current_char == Some('-') {
+                    let token = if self.current_char == Some('-') {
                         self.advance();
-                        return Token::MinusMinus;
-                    }
-                    if self.current_char == Some('>') {
+                        Token::MinusMinus
+                    } else if self.current_char == Some('>') {
                         self.advance();
-                        return Token::Arrow;
-                    }
-                    if self.current_char == Some('=') {
+                        Token::Arrow
+                    } else if self.current_char == Some('=') {
                         self.advance();
-                        return Token::MinusEqual;
-                    }
-                    return Token::Minus;
+                        Token::MinusEqual
+                    } else {
+                        Token::Minus
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('*') => {
                     self.advance();
-                    if self.current_char == Some('*') {
+                    let token = if self.current_char == Some('*') {
                         self.advance();
-                        return Token::DoubleStar;
-                    }
-                    if self.current_char == Some('=') {
+                        Token::DoubleStar
+                    } else if self.current_char == Some('=') {
                         self.advance();
-                        return Token::StarEqual;
-                    }
-                    return Token::Star;
+                        Token::StarEqual
+                    } else {
+                        Token::Star
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('/') => {
                     self.advance();
-                    if self.current_char == Some('/') {
+                    let token = if self.current_char == Some('/') {
                         self.advance();
-                        return Token::DoubleSlash;
-                    }
-                    if self.current_char == Some('=') {
+                        Token::DoubleSlash
+                    } else if self.current_char == Some('=') {
                         self.advance();
-                        return Token::SlashEqual;
-                    }
-                    return Token::Slash;
+                        Token::SlashEqual
+                    } else {
+                        Token::Slash
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('%') => {
                     self.advance();
-                    return Token::Percent;
+                    return self.make_token(Token::Percent, location);
                 }
                 Some('=') => {
                     self.advance();
-                    if self.current_char == Some('=') {
+                    let token = if self.current_char == Some('=') {
                         self.advance();
-                        return Token::DoubleEqual;
-                    }
-                    return Token::Equal;
+                        Token::DoubleEqual
+                    } else {
+                        Token::Equal
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('!') => {
                     self.advance();
                     if self.current_char == Some('=') {
                         self.advance();
-                        return Token::NotEqual;
+                        return self.make_token(Token::NotEqual, location);
                     }
                     panic!("Unexpected character: !");
                 }
                 Some('<') => {
                     self.advance();
-                    if self.current_char == Some('=') {
+                    let token = if self.current_char == Some('=') {
                         self.advance();
-                        return Token::LessEqual;
-                    }
-                    return Token::Less;
+                        Token::LessEqual
+                    } else {
+                        Token::Less
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('>') => {
                     self.advance();
-                    if self.current_char == Some('=') {
+                    let token = if self.current_char == Some('=') {
                         self.advance();
-                        return Token::GreaterEqual;
-                    }
-                    return Token::Greater;
+                        Token::GreaterEqual
+                    } else {
+                        Token::Greater
+                    };
+                    return self.make_token(token, location);
                 }
                 Some('(') => {
                     self.advance();
-                    return Token::LeftParen;
+                    return self.make_token(Token::LeftParen, location);
                 }
                 Some(')') => {
                     self.advance();
-                    return Token::RightParen;
+                    return self.make_token(Token::RightParen, location);
                 }
                 Some('{') => {
                     self.advance();
-                    return Token::LeftBrace;
+                    return self.make_token(Token::LeftBrace, location);
                 }
                 Some('}') => {
                     self.advance();
-                    return Token::RightBrace;
+                    return self.make_token(Token::RightBrace, location);
                 }
                 Some('[') => {
                     self.advance();
-                    return Token::LeftBracket;
+                    return self.make_token(Token::LeftBracket, location);
                 }
                 Some(']') => {
                     self.advance();
-                    return Token::RightBracket;
+                    return self.make_token(Token::RightBracket, location);
                 }
                 Some(',') => {
                     self.advance();
-                    return Token::Comma;
+                    return self.make_token(Token::Comma, location);
                 }
                 Some(':') => {
                     self.advance();
-                    return Token::Colon;
+                    return self.make_token(Token::Colon, location);
                 }
                 Some(';') => {
                     self.advance();
-                    return Token::Semicolon;
+                    return self.make_token(Token::Semicolon, location);
                 }
                 Some('.') => {
                     self.advance();
-                    return Token::Dot;
+                    return self.make_token(Token::Dot, location);
                 }
                 Some(ch) => {
                     panic!("Unexpected character: {}", ch);
@@ -430,15 +504,15 @@ impl Lexer {
         }
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    pub fn tokenize(&mut self) -> Vec<TokenWithLocation> {
         let mut tokens = Vec::new();
         loop {
-            let token = self.next_token();
-            if token == Token::Eof {
-                tokens.push(token);
+            let token_with_loc = self.next_token();
+            if token_with_loc.token == Token::Eof {
+                tokens.push(token_with_loc);
                 break;
             }
-            tokens.push(token);
+            tokens.push(token_with_loc);
         }
         tokens
     }

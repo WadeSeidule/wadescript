@@ -1,8 +1,8 @@
 use crate::ast::*;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{Lexer, SourceLocation, Token, TokenWithLocation};
 
 pub struct Parser {
-    tokens: Vec<Token>,
+    tokens: Vec<TokenWithLocation>,
     current: usize,
 }
 
@@ -13,14 +13,18 @@ impl Parser {
     }
 
     fn peek(&self) -> &Token {
-        &self.tokens[self.current]
+        &self.tokens[self.current].token
+    }
+
+    fn peek_location(&self) -> SourceLocation {
+        self.tokens[self.current].location
     }
 
     fn advance(&mut self) -> Token {
         if !self.is_at_end() {
             self.current += 1;
         }
-        self.tokens[self.current - 1].clone()
+        self.tokens[self.current - 1].token.clone()
     }
 
     fn is_at_end(&self) -> bool {
@@ -44,11 +48,19 @@ impl Parser {
         false
     }
 
+    fn parse_error(&self, message: &str) -> ! {
+        let location = self.peek_location();
+        eprintln!("\n\x1b[31;1mParse Error:\x1b[0m {}", message);
+        eprintln!("  \x1b[90mat {}\x1b[0m", location);
+        eprintln!("  \x1b[90mgot: {:?}\x1b[0m", self.peek());
+        std::process::exit(1);
+    }
+
     fn consume(&mut self, token: Token, message: &str) {
         if self.check(&token) {
             self.advance();
         } else {
-            panic!("{} Got {:?}", message, self.peek());
+            self.parse_error(&format!("{} (expected {:?})", message, token));
         }
     }
 
@@ -180,7 +192,7 @@ impl Parser {
         let path = if let Token::StringLiteral(p) = self.advance() {
             p
         } else {
-            panic!("Expected string literal after 'import'");
+            self.parse_error("Expected string literal after 'import'");
         };
 
         self.skip_newlines();
@@ -192,7 +204,7 @@ impl Parser {
         let name = if let Token::Identifier(n) = self.advance() {
             n
         } else {
-            panic!("Expected function name");
+            self.parse_error("Expected function name after 'def'");
         };
 
         self.consume(Token::LeftParen, "Expected '(' after function name");
@@ -203,7 +215,7 @@ impl Parser {
                 let param_name = if let Token::Identifier(n) = self.advance() {
                     n
                 } else {
-                    panic!("Expected parameter name");
+                    self.parse_error("Expected parameter name in function definition");
                 };
 
                 self.consume(Token::Colon, "Expected ':' after parameter name");
@@ -451,7 +463,7 @@ impl Parser {
 
         // Check for compound assignment operators
         if self.match_token(&[Token::PlusEqual, Token::MinusEqual, Token::StarEqual, Token::SlashEqual]) {
-            let op_token = self.tokens[self.current - 1].clone();
+            let op_token = self.tokens[self.current - 1].token.clone();
             let right_value = Box::new(self.assignment());
 
             // Determine the binary operator
@@ -477,12 +489,13 @@ impl Parser {
             }
 
             // For index assignments: arr[i] += 1 becomes arr[i] = arr[i] + 1
-            if let Expression::Index { object, index } = expr {
+            if let Expression::Index { object, index, line } = expr {
                 if let Expression::Variable(obj_name) = *object.clone() {
                     let new_value = Box::new(Expression::Binary {
                         left: Box::new(Expression::Index {
                             object: Box::new(Expression::Variable(obj_name.clone())),
                             index: index.clone(),
+                            line,
                         }),
                         op: binary_op,
                         right: right_value,
@@ -491,6 +504,7 @@ impl Parser {
                         object: obj_name,
                         index,
                         value: new_value,
+                        line,
                     };
                 }
             }
@@ -510,13 +524,14 @@ impl Parser {
             }
 
             // Check if this is an index assignment (e.g., arr[0] = x or dict["key"] = x)
-            if let Expression::Index { object, index } = expr {
+            if let Expression::Index { object, index, line } = expr {
                 // Extract the object variable name
                 if let Expression::Variable(obj_name) = *object {
                     return Expression::IndexAssignment {
                         object: obj_name,
                         index,
                         value,
+                        line,
                     };
                 }
             }
@@ -561,7 +576,7 @@ impl Parser {
         let mut expr = self.comparison();
 
         while self.match_token(&[Token::DoubleEqual, Token::NotEqual]) {
-            let op = match &self.tokens[self.current - 1] {
+            let op = match &self.tokens[self.current - 1].token {
                 Token::DoubleEqual => BinaryOp::Equal,
                 Token::NotEqual => BinaryOp::NotEqual,
                 _ => unreachable!(),
@@ -581,7 +596,7 @@ impl Parser {
         let mut expr = self.term();
 
         while self.match_token(&[Token::Less, Token::Greater, Token::LessEqual, Token::GreaterEqual]) {
-            let op = match &self.tokens[self.current - 1] {
+            let op = match &self.tokens[self.current - 1].token {
                 Token::Less => BinaryOp::Less,
                 Token::Greater => BinaryOp::Greater,
                 Token::LessEqual => BinaryOp::LessEqual,
@@ -603,7 +618,7 @@ impl Parser {
         let mut expr = self.factor();
 
         while self.match_token(&[Token::Plus, Token::Minus]) {
-            let op = match &self.tokens[self.current - 1] {
+            let op = match &self.tokens[self.current - 1].token {
                 Token::Plus => BinaryOp::Add,
                 Token::Minus => BinaryOp::Subtract,
                 _ => unreachable!(),
@@ -623,7 +638,7 @@ impl Parser {
         let mut expr = self.unary();
 
         while self.match_token(&[Token::Star, Token::Slash, Token::Percent, Token::DoubleSlash]) {
-            let op = match &self.tokens[self.current - 1] {
+            let op = match &self.tokens[self.current - 1].token {
                 Token::Star => BinaryOp::Multiply,
                 Token::Slash => BinaryOp::Divide,
                 Token::Percent => BinaryOp::Modulo,
@@ -643,7 +658,7 @@ impl Parser {
 
     fn unary(&mut self) -> Expression {
         if self.match_token(&[Token::Not, Token::Minus]) {
-            let op = match &self.tokens[self.current - 1] {
+            let op = match &self.tokens[self.current - 1].token {
                 Token::Not => UnaryOp::Not,
                 Token::Minus => UnaryOp::Negate,
                 _ => unreachable!(),
@@ -675,6 +690,7 @@ impl Parser {
 
         loop {
             if self.match_token(&[Token::LeftParen]) {
+                let line = self.tokens[self.current - 1].location.line; // Capture line of '('
                 let mut args = Vec::new();
                 if !self.check(&Token::RightParen) {
                     loop {
@@ -688,13 +704,16 @@ impl Parser {
                 expr = Expression::Call {
                     callee: Box::new(expr),
                     args,
+                    line,
                 };
             } else if self.match_token(&[Token::LeftBracket]) {
+                let line = self.tokens[self.current - 1].location.line;
                 let index = self.expression();
                 self.consume(Token::RightBracket, "Expected ']' after index");
                 expr = Expression::Index {
                     object: Box::new(expr),
                     index: Box::new(index),
+                    line,
                 };
             } else if self.match_token(&[Token::Dot]) {
                 let member = if let Token::Identifier(n) = self.peek().clone() {
@@ -1274,7 +1293,7 @@ if x > 10 {
     fn test_parse_function_call() {
         let program = parse_source("print_int(42)");
 
-        if let Statement::Expression(Expression::Call { callee, args }) = &program.statements[0] {
+        if let Statement::Expression(Expression::Call { callee, args, line: _ }) = &program.statements[0] {
             assert!(matches!(**callee, Expression::Variable(_)));
             assert_eq!(args.len(), 1);
         } else {

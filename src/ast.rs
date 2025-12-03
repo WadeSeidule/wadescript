@@ -125,6 +125,7 @@ pub enum Expression {
     Call {
         callee: Box<Expression>,
         args: Vec<Expression>,
+        line: usize,
     },
     MemberAccess {
         object: Box<Expression>,
@@ -146,11 +147,13 @@ pub enum Expression {
     Index {
         object: Box<Expression>,
         index: Box<Expression>,
+        line: usize,
     },
     IndexAssignment {
         object: String,
         index: Box<Expression>,
         value: Box<Expression>,
+        line: usize,
     },
     MethodCall {
         object: Box<Expression>,

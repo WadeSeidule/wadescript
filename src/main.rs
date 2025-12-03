@@ -116,7 +116,7 @@ fn main() {
     }
 
     let context = Context::create();
-    let mut codegen = CodeGen::new(&context, "wadescript_module");
+    let mut codegen = CodeGen::new(&context, "wadescript_module", input_file);
 
     if let Err(e) = codegen.compile_program(&program) {
         eprintln!("Compilation error: {}", e);
@@ -134,12 +134,13 @@ fn main() {
 
     let target_triple = TargetMachine::get_default_triple();
     let target = Target::from_triple(&target_triple).unwrap();
+    // Use no optimization to preserve debug information
     let target_machine = target
         .create_target_machine(
             &target_triple,
             "generic",
             "",
-            OptimizationLevel::Default,
+            OptimizationLevel::None,
             RelocMode::Default,
             CodeModel::Default,
         )
@@ -160,9 +161,9 @@ fn main() {
         "target/release/libwadescript_runtime.a"
     };
 
-    // Link with clang
+    // Link with clang (preserve debug information with -g)
     let output = Command::new("clang")
-        .args(&[&obj_file, runtime_lib, "-o", exe_file])
+        .args(&["-g", &obj_file, runtime_lib, "-o", exe_file])
         .output()
         .expect("Failed to link object file with clang");
 
@@ -172,6 +173,15 @@ fn main() {
         std::process::exit(1);
     }
 
+    // On macOS, create dSYM bundle for debug info (before deleting object file!)
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("dsymutil")
+            .arg(exe_file)
+            .output();
+    }
+
+    // Clean up object file
     fs::remove_file(&obj_file).ok();
 
     println!("Compiled successfully to '{}'", exe_file);

@@ -6,6 +6,7 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, StructType
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::basic_block::BasicBlock;
 use inkwell::{AddressSpace, IntPredicate, FloatPredicate};
+use inkwell::debug_info::{AsDIScope, DICompileUnit, DIFlagsConstants, DWARFEmissionKind, DWARFSourceLanguage, DebugInfoBuilder, DISubprogram};
 use std::collections::HashMap;
 
 // Loop context for break/continue
@@ -25,12 +26,36 @@ pub struct CodeGen<'ctx> {
     class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
     current_class: Option<String>, // Track current class being compiled
     loop_stack: Vec<LoopContext<'ctx>>, // Stack of loop contexts for break/continue
+    // Debug info
+    debug_builder: DebugInfoBuilder<'ctx>,
+    compile_unit: DICompileUnit<'ctx>,
+    source_file: String,
+    current_debug_scope: Option<DISubprogram<'ctx>>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
-    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
+    pub fn new(context: &'ctx Context, module_name: &str, source_file: &str) -> Self {
         let module = context.create_module(module_name);
         let builder = context.create_builder();
+
+        // Create debug info builder
+        let (debug_builder, compile_unit) = module.create_debug_info_builder(
+            true, // allow_unresolved
+            DWARFSourceLanguage::C, // closest to WadeScript
+            source_file,
+            ".",
+            "WadeScript Compiler",
+            false, // is_optimized
+            "",
+            0,
+            "",
+            DWARFEmissionKind::Full,
+            0,
+            false,
+            false,
+            "",
+            "",
+        );
 
         CodeGen {
             context,
@@ -43,6 +68,10 @@ impl<'ctx> CodeGen<'ctx> {
             class_fields: HashMap::new(),
             current_class: None,
             loop_stack: Vec::new(),
+            debug_builder,
+            compile_unit,
+            source_file: source_file.to_string(),
+            current_debug_scope: None,
         }
     }
 
@@ -87,10 +116,14 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_list_functions();
         self.declare_dict_functions();
         self.declare_string_functions();
+        self.declare_runtime_error_functions();
 
         for statement in &program.statements {
             self.compile_statement(statement)?;
         }
+
+        // Finalize debug info
+        self.debug_builder.finalize();
 
         Ok(())
     }
@@ -293,6 +326,11 @@ impl<'ctx> CodeGen<'ctx> {
         let list_get_fn = self.module.add_function("list_get_i64", list_get_type, None);
         self.functions.insert("list_get_i64".to_string(), list_get_fn);
 
+        // list_set_i64(list_ptr, index, value) -> void
+        let list_set_type = void_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false);
+        let list_set_fn = self.module.add_function("list_set_i64", list_set_type, None);
+        self.functions.insert("list_set_i64".to_string(), list_set_fn);
+
         // list_pop_i64(list_ptr) -> i64
         let list_pop_type = i64_type.fn_type(&[ptr_type.into()], false);
         let list_pop_fn = self.module.add_function("list_pop_i64", list_pop_type, None);
@@ -342,7 +380,7 @@ impl<'ctx> CodeGen<'ctx> {
         let dict_set_fn = self.module.add_function("dict_set", dict_set_type, None);
         self.functions.insert("dict_set".to_string(), dict_set_fn);
 
-        // dict_get(dict_ptr, key_str) -> i64 (returns 0 if not found)
+        // dict_get(dict_ptr, key_str) -> i64
         let dict_get_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
         let dict_get_fn = self.module.add_function("dict_get", dict_get_type, None);
         self.functions.insert("dict_get".to_string(), dict_get_fn);
@@ -407,6 +445,21 @@ impl<'ctx> CodeGen<'ctx> {
         self.functions.insert("str_char_at".to_string(), str_char_at_fn);
     }
 
+    fn declare_runtime_error_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let void_type = self.context.void_type();
+
+        // push_call_stack(func_name_ptr) -> void
+        let push_call_stack_type = void_type.fn_type(&[ptr_type.into()], false);
+        let push_call_stack_fn = self.module.add_function("push_call_stack", push_call_stack_type, None);
+        self.functions.insert("push_call_stack".to_string(), push_call_stack_fn);
+
+        // pop_call_stack() -> void
+        let pop_call_stack_type = void_type.fn_type(&[], false);
+        let pop_call_stack_fn = self.module.add_function("pop_call_stack", pop_call_stack_type, None);
+        self.functions.insert("pop_call_stack".to_string(), pop_call_stack_fn);
+    }
+
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
             Statement::VarDecl {
@@ -454,8 +507,47 @@ impl<'ctx> CodeGen<'ctx> {
                 let function = self.module.add_function(name, fn_type, None);
                 self.functions.insert(function_key, function);
 
+                // Create debug info for this function
+                let di_file = self.compile_unit.get_file();
+                let di_func_type = self.debug_builder.create_subroutine_type(
+                    di_file,
+                    None, // return type (simplified for now)
+                    &[], // parameter types (simplified for now)
+                    inkwell::debug_info::DIFlags::PUBLIC,
+                );
+
+                let di_subprogram = self.debug_builder.create_function(
+                    di_file.as_debug_info_scope(),
+                    name,
+                    None, // linkage name
+                    di_file,
+                    1, // line number (ideally would track this from AST)
+                    di_func_type,
+                    true, // is_local_to_unit
+                    true, // is_definition
+                    1, // scope_line
+                    inkwell::debug_info::DIFlags::PUBLIC,
+                    false, // is_optimized
+                );
+
+                // Attach debug info to the function
+                function.set_subprogram(di_subprogram);
+
+                // Save previous scope and set current scope to this function
+                let saved_debug_scope = self.current_debug_scope;
+                self.current_debug_scope = Some(di_subprogram);
+
                 let entry = self.context.append_basic_block(function, "entry");
                 self.builder.position_at_end(entry);
+
+                // Push function name onto call stack for stack traces
+                let func_name_str = self.builder.build_global_string_ptr(name, "func_name").unwrap();
+                let push_call_stack_fn = *self.functions.get("push_call_stack").unwrap();
+                self.builder.build_call(
+                    push_call_stack_fn,
+                    &[func_name_str.as_pointer_value().into()],
+                    ""
+                ).unwrap();
 
                 let saved_variables = self.variables.clone();
                 self.variables.clear();
@@ -481,6 +573,10 @@ impl<'ctx> CodeGen<'ctx> {
                 }
 
                 if !has_return {
+                    // Pop function from call stack before returning
+                    let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
+                    self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
+
                     if *return_type == Type::Void {
                         self.builder.build_return(None).unwrap();
                     } else {
@@ -500,6 +596,9 @@ impl<'ctx> CodeGen<'ctx> {
 
                 self.variables = saved_variables;
                 self.current_function = None;
+
+                // Restore previous debug scope
+                self.current_debug_scope = saved_debug_scope;
 
                 Ok(())
             }
@@ -819,9 +918,19 @@ impl<'ctx> CodeGen<'ctx> {
 
             Statement::Return(expr) => {
                 if let Some(e) = expr {
+                    // Compute return value first (may call other functions)
                     let return_value = self.compile_expression(e)?;
+
+                    // Pop function from call stack after computing return value
+                    let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
+                    self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
+
                     self.builder.build_return(Some(&return_value)).unwrap();
                 } else {
+                    // Pop function from call stack before returning
+                    let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
+                    self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
+
                     self.builder.build_return(None).unwrap();
                 }
                 Ok(())
@@ -1323,7 +1432,22 @@ impl<'ctx> CodeGen<'ctx> {
                 }
             }
 
-            Expression::Call { callee, args } => {
+            Expression::Call { callee, args, line } => {
+                // Set debug location for this call
+                let scope = if let Some(func_scope) = self.current_debug_scope {
+                    func_scope.as_debug_info_scope()
+                } else {
+                    self.compile_unit.get_file().as_debug_info_scope()
+                };
+                let debug_loc = self.debug_builder.create_debug_location(
+                    self.context,
+                    *line as u32,
+                    0, // column
+                    scope,
+                    None,
+                );
+                self.builder.set_current_debug_location(debug_loc);
+
                 // Check if this is a module.function() call
                 if let Expression::MemberAccess { object, member } = &**callee {
                     if let Expression::Variable(_module_name) = &**object {
@@ -1596,13 +1720,28 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(dict_ptr)
             }
 
-            Expression::Index { object, index } => {
+            Expression::Index { object, index, line } => {
                 let obj_val = self.compile_expression(object)?;
                 let idx_val = self.compile_expression(index)?;
 
+                // Set debug location for this operation
+                let scope = if let Some(func_scope) = self.current_debug_scope {
+                    func_scope.as_debug_info_scope()
+                } else {
+                    self.compile_unit.get_file().as_debug_info_scope()
+                };
+                let debug_loc = self.debug_builder.create_debug_location(
+                    self.context,
+                    *line as u32,
+                    0, // column
+                    scope,
+                    None,
+                );
+                self.builder.set_current_debug_location(debug_loc);
+
                 // Check if this is dict access (string key) or list access (int index)
                 if idx_val.is_pointer_value() {
-                    // Dict access with string key
+                    // Dict access with string key (no line parameter needed)
                     let dict_get = self.functions.get("dict_get").unwrap();
                     let result = self
                         .builder
@@ -1613,7 +1752,7 @@ impl<'ctx> CodeGen<'ctx> {
                         .unwrap();
                     Ok(result)
                 } else {
-                    // List access with int index
+                    // List access with int index (no line parameter needed)
                     let list_get = self.functions.get("list_get_i64").unwrap();
                     let result = self
                         .builder
@@ -1626,7 +1765,7 @@ impl<'ctx> CodeGen<'ctx> {
                 }
             }
 
-            Expression::IndexAssignment { object, index, value } => {
+            Expression::IndexAssignment { object, index, value, line } => {
                 // Get the object (dict or list) and load its value
                 let (obj_ptr, obj_llvm_type, _) = self.variables.get(object)
                     .ok_or_else(|| format!("Undefined variable '{}'", object))?
@@ -1639,6 +1778,21 @@ impl<'ctx> CodeGen<'ctx> {
                 let idx_val = self.compile_expression(index)?;
                 let val_val = self.compile_expression(value)?;
 
+                // Set debug location for this operation
+                let scope = if let Some(func_scope) = self.current_debug_scope {
+                    func_scope.as_debug_info_scope()
+                } else {
+                    self.compile_unit.get_file().as_debug_info_scope()
+                };
+                let debug_loc = self.debug_builder.create_debug_location(
+                    self.context,
+                    *line as u32,
+                    0, // column
+                    scope,
+                    None,
+                );
+                self.builder.set_current_debug_location(debug_loc);
+
                 // Check if this is dict assignment (string key) or list assignment (int index)
                 if idx_val.is_pointer_value() {
                     // Dict assignment with string key
@@ -1648,9 +1802,9 @@ impl<'ctx> CodeGen<'ctx> {
                         &[obj_val.into(), idx_val.into(), val_val.into()], "")
                         .unwrap();
                 } else {
-                    // List assignment with int index
-                    let list_set = self.functions.get("list_set")
-                        .ok_or("list_set function not found")?;
+                    // List assignment with int index (no line parameter needed)
+                    let list_set = self.functions.get("list_set_i64")
+                        .ok_or("list_set_i64 function not found")?;
                     self.builder.build_call(*list_set,
                         &[obj_val.into(), idx_val.into(), val_val.into()], "")
                         .unwrap();

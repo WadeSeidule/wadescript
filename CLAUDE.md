@@ -155,6 +155,10 @@ Defines the structure of WadeScript programs:
 - Manages variables as stack-allocated pointers
 - Handles runtime function calls (list/dict operations)
 - Creates string literals and format strings
+- Emits stack trace tracking calls:
+  - `push_call_stack(func_name)` at function entry
+  - `pop_call_stack()` before all returns (both explicit and implicit)
+  - Return values computed before popping to maintain accurate stack traces
 
 ### Runtime Libraries (Rust)
 The runtime is implemented in Rust and compiled as a static library (`libwadescript_runtime.a`).
@@ -187,6 +191,16 @@ The runtime is implemented in Rust and compiled as a static library (`libwadescr
 - `str_char_at`: Returns single-character string at given index (used for iteration)
 - Memory allocation via Rust's alloc API for new strings
 - UTF-8 aware string operations via Rust's str methods
+
+**Error Handling** (src/runtime/lib.rs):
+- Functions: `runtime_error`, `push_call_stack`, `pop_call_stack`
+- `runtime_error`: Prints colored error message with stack trace and exits
+- `push_call_stack`: Adds function name to global call stack (called at function entry)
+- `pop_call_stack`: Removes function from call stack (called before returns)
+- Global `CALL_STACK` mutex protects the call stack vector
+- Stack traces show function call history when errors occur
+- All list and dict operations use `runtime_error` for error reporting
+- Provides contextual information (indices, keys, lengths) in error messages
 
 ## Type System
 
@@ -314,6 +328,70 @@ Type errors are reported during compilation with clear messages about what went 
 - Usually caused by incorrect pointer handling in codegen
 - Check that variables are loaded before use
 - Verify runtime function signatures match C implementations
+
+## Error Handling
+
+WadeScript provides comprehensive error handling with colored output and detailed messages to help debug issues quickly.
+
+### Parse Errors
+
+When the compiler encounters syntax errors, it provides:
+- **Colored error messages** (red for errors, gray for details)
+- **Token position** showing where the error occurred
+- **Expected vs actual** showing what was expected and what was found
+
+Example:
+```
+Parse Error: Expected parameter name in function definition
+  at token position 32
+  got: IntType
+```
+
+### Runtime Errors
+
+Runtime errors include detailed contextual information:
+
+**List Operations:**
+- **Bounds checking** - Validates indices are within valid range
+- **Pop from empty** - Prevents popping from empty lists
+- Example: `List index out of bounds: index 10 is out of range for list of length 3`
+
+**Dictionary Operations:**
+- **Key validation** - Checks if keys exist before access
+- **Null checking** - Validates dictionary and key pointers
+- Example: `Dictionary key error: key 'Charlie' not found in dictionary`
+
+### Stack Traces
+
+When runtime errors occur, WadeScript shows the complete call stack:
+
+```
+Runtime Error: List index out of bounds: index 10 is out of range for list of length 3
+
+Call stack:
+  1. level3
+  2. level2
+  3. level1
+  4. main
+```
+
+The stack trace shows:
+- Function names in order from most recent (where error occurred) to oldest (main)
+- Numbered entries for easy counting of call depth
+- Colored output (cyan for "Call stack:", gray for numbers)
+
+**How it works:**
+- Each function push/pop is tracked automatically
+- Stack is maintained in a global mutex-protected vector
+- Error messages print the stack before exiting
+
+**Testing error handling:**
+```bash
+./ws run examples/test_stack_trace.ws      # Test nested function errors
+./ws run examples/test_dict_error.ws       # Test dictionary key errors
+./ws run examples/test_bounds_error.ws     # Test list bounds errors
+./ws run examples/test_parse_error.ws      # Test parse errors
+```
 
 ## Common Patterns
 

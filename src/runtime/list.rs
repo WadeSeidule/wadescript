@@ -1,4 +1,5 @@
 use std::alloc::{alloc, realloc, Layout};
+use std::ffi::CString;
 
 /// List structure: { ptr data, i64 length, i64 capacity }
 #[repr(C)]
@@ -8,18 +9,28 @@ pub struct List {
     capacity: i64,
 }
 
+// Import the runtime_error function
+extern "C" {
+    fn runtime_error(message: *const i8);
+}
+
 /// Get element at index from i64 list
 #[no_mangle]
 pub extern "C" fn list_get_i64(list: *const List, index: i64) -> i64 {
     unsafe {
         if list.is_null() {
-            return 0;
+            let msg = CString::new("List access error: null list").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         let list_ref = &*list;
 
         if index < 0 || index >= list_ref.length {
-            return 0; // Out of bounds
+            let msg = CString::new(format!(
+                "List index out of bounds: index {} is out of range for list of length {}",
+                index, list_ref.length
+            )).unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         *list_ref.data.offset(index as isize)
@@ -75,13 +86,15 @@ pub extern "C" fn list_push_i64(list: *mut List, value: i64) {
 pub extern "C" fn list_pop_i64(list: *mut List) -> i64 {
     unsafe {
         if list.is_null() {
-            return 0;
+            let msg = CString::new("List pop error: null list").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         let list_ref = &mut *list;
 
         if list_ref.length == 0 {
-            return 0;
+            let msg = CString::new("List pop error: cannot pop from empty list").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         list_ref.length -= 1;
@@ -94,13 +107,18 @@ pub extern "C" fn list_pop_i64(list: *mut List) -> i64 {
 pub extern "C" fn list_set_i64(list: *mut List, index: i64, value: i64) {
     unsafe {
         if list.is_null() {
-            return;
+            let msg = CString::new("List assignment error: null list").unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         let list_ref = &mut *list;
 
         if index < 0 || index >= list_ref.length {
-            return; // Out of bounds
+            let msg = CString::new(format!(
+                "List index out of bounds: index {} is out of range for list of length {}",
+                index, list_ref.length
+            )).unwrap();
+            runtime_error(msg.as_ptr());
         }
 
         *list_ref.data.offset(index as isize) = value;

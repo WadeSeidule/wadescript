@@ -115,6 +115,125 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    // Helper: Check if a type needs reference counting
+    fn is_rc_type(&self, ws_type: &Type) -> bool {
+        // Note: Str excluded for now because string literals are global constants
+        // We'll add proper string RC later (need to distinguish literals from allocated strings)
+        matches!(ws_type, Type::List(_) | Type::Dict(_, _) | Type::Custom(_))
+    }
+
+    // Inline RC retain: increment reference count
+    fn build_rc_retain_inline(&self, ptr: PointerValue<'ctx>) {
+        let i64_type = self.context.i64_type();
+        let i8_type = self.context.i8_type();
+
+        // ptr points to object data
+        // header is 8 bytes before: [ref_count: i64][data...]
+
+        // Get header pointer: ptr - 8
+        let minus_8 = i64_type.const_int((-8i64) as u64, false);
+        let header = unsafe {
+            self.builder.build_gep(
+                i8_type,
+                ptr,
+                &[minus_8],
+                "rc_header"
+            ).unwrap()
+        };
+
+        // Load current count
+        let count = self.builder.build_load(
+            i64_type,
+            header,
+            "ref_count"
+        ).unwrap().into_int_value();
+
+        // Increment
+        let new_count = self.builder.build_int_add(
+            count,
+            i64_type.const_int(1, false),
+            "new_count"
+        ).unwrap();
+
+        // Store back
+        self.builder.build_store(header, new_count).unwrap();
+    }
+
+    // Release all RC variables in current scope
+    fn release_scope_variables(&self) {
+        for (_name, (ptr, var_type, ast_type)) in &self.variables {
+            if self.is_rc_type(ast_type) {
+                // Load the pointer value
+                let val = self.builder.build_load(*var_type, *ptr, "scope_val").unwrap();
+                if val.is_pointer_value() {
+                    let obj_ptr = val.into_pointer_value();
+                    // Check if not null before releasing
+                    let is_null = self.builder.build_is_null(obj_ptr, "is_null").unwrap();
+                    let function = self.current_function.unwrap();
+                    let release_block = self.context.append_basic_block(function, "scope_release");
+                    let continue_block = self.context.append_basic_block(function, "scope_continue");
+
+                    self.builder.build_conditional_branch(is_null, continue_block, release_block).unwrap();
+
+                    self.builder.position_at_end(release_block);
+                    self.build_rc_release_inline(obj_ptr);
+                    self.builder.build_unconditional_branch(continue_block).unwrap();
+
+                    self.builder.position_at_end(continue_block);
+                }
+            }
+        }
+    }
+
+    // Inline RC release: decrement reference count and free if zero
+    fn build_rc_release_inline(&self, ptr: PointerValue<'ctx>) {
+        let i64_type = self.context.i64_type();
+        let i8_type = self.context.i8_type();
+        let function = self.current_function.unwrap();
+
+        // Get header
+        let minus_8 = i64_type.const_int((-8i64) as u64, false);
+        let header = unsafe {
+            self.builder.build_gep(i8_type, ptr, &[minus_8], "rc_header").unwrap()
+        };
+
+        // Load count
+        let count = self.builder.build_load(i64_type, header, "ref_count")
+            .unwrap().into_int_value();
+
+        // Decrement
+        let new_count = self.builder.build_int_sub(
+            count,
+            i64_type.const_int(1, false),
+            "new_count"
+        ).unwrap();
+
+        // Store
+        self.builder.build_store(header, new_count).unwrap();
+
+        // Check if we hit zero
+        let is_zero = self.builder.build_int_compare(
+            IntPredicate::EQ,
+            new_count,
+            i64_type.const_zero(),
+            "is_zero"
+        ).unwrap();
+
+        let free_block = self.context.append_basic_block(function, "rc_free");
+        let continue_block = self.context.append_basic_block(function, "rc_continue");
+
+        self.builder.build_conditional_branch(is_zero, free_block, continue_block).unwrap();
+
+        // Free block: deallocate memory
+        self.builder.position_at_end(free_block);
+        let free_fn = self.functions.get("free").unwrap();
+        self.builder.build_call(*free_fn, &[header.into()], "").unwrap();
+        self.builder.build_unconditional_branch(continue_block).unwrap();
+
+        // Continue
+        self.builder.position_at_end(continue_block);
+    }
+
     pub fn compile_program(&mut self, program: &Program) -> Result<(), String> {
         self.declare_printf();
         self.declare_memory_functions();
@@ -191,6 +310,22 @@ impl<'ctx> CodeGen<'ctx> {
         let strcmp_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
         let strcmp_fn = self.module.add_function("strcmp", strcmp_type, None);
         self.functions.insert("strcmp".to_string(), strcmp_fn);
+
+        // RC functions
+        // rc_alloc(size) -> ptr
+        let rc_alloc_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let rc_alloc_fn = self.module.add_function("rc_alloc", rc_alloc_type, None);
+        self.functions.insert("rc_alloc".to_string(), rc_alloc_fn);
+
+        // rc_retain(ptr) -> void
+        let rc_retain_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+        let rc_retain_fn = self.module.add_function("rc_retain", rc_retain_type, None);
+        self.functions.insert("rc_retain".to_string(), rc_retain_fn);
+
+        // rc_release(ptr) -> void
+        let rc_release_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+        let rc_release_fn = self.module.add_function("rc_release", rc_release_type, None);
+        self.functions.insert("rc_release".to_string(), rc_release_fn);
     }
 
     fn declare_builtin_functions(&mut self) {
@@ -275,11 +410,11 @@ impl<'ctx> CodeGen<'ctx> {
         let entry = self.context.append_basic_block(list_create_fn, "entry");
         self.builder.position_at_end(entry);
 
-        // Allocate list struct (24 bytes)
-        let malloc = self.module.get_function("malloc").unwrap();
+        // Allocate list struct (24 bytes) with RC
+        let rc_alloc = self.functions.get("rc_alloc").unwrap();
         let struct_size = self.context.i64_type().const_int(24, false);
         let list_ptr = self.builder
-            .build_call(malloc, &[struct_size.into()], "list_ptr")
+            .build_call(*rc_alloc, &[struct_size.into()], "list_ptr")
             .unwrap()
             .try_as_basic_value()
             .left()
@@ -518,7 +653,17 @@ impl<'ctx> CodeGen<'ctx> {
 
                 if let Some(init_expr) = initializer {
                     let init_value = self.compile_expression(init_expr)?;
+
+                    // For RC types, retain the initial value (it starts with ref_count=1 from allocation)
+                    // No need to retain here since the allocation already gives us ownership
+
                     self.builder.build_store(alloca, init_value).unwrap();
+                } else {
+                    // Initialize RC types to null to prevent releasing garbage
+                    if self.is_rc_type(type_annotation) {
+                        let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
+                        self.builder.build_store(alloca, null_ptr).unwrap();
+                    }
                 }
 
                 self.variables.insert(name.clone(), (alloca, var_type, type_annotation.clone()));
@@ -619,6 +764,9 @@ impl<'ctx> CodeGen<'ctx> {
                 }
 
                 if !has_return {
+                    // Release all RC variables before returning
+                    self.release_scope_variables();
+
                     // Pop function from call stack before returning
                     let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
                     self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
@@ -967,12 +1115,18 @@ impl<'ctx> CodeGen<'ctx> {
                     // Compute return value first (may call other functions)
                     let return_value = self.compile_expression(e)?;
 
+                    // Release all RC variables before returning
+                    self.release_scope_variables();
+
                     // Pop function from call stack after computing return value
                     let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
                     self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
 
                     self.builder.build_return(Some(&return_value)).unwrap();
                 } else {
+                    // Release all RC variables before returning
+                    self.release_scope_variables();
+
                     // Pop function from call stack before returning
                     let pop_call_stack_fn = *self.functions.get("pop_call_stack").unwrap();
                     self.builder.build_call(pop_call_stack_fn, &[], "").unwrap();
@@ -1904,13 +2058,43 @@ impl<'ctx> CodeGen<'ctx> {
             }
 
             Expression::Assignment { target, value } => {
-                let (ptr, _, _) = *self
-                    .variables
-                    .get(target)
+                let var_info = self.variables.get(target)
                     .ok_or(format!("Undefined variable '{}'", target))?;
-                let val = self.compile_expression(value)?;
-                self.builder.build_store(ptr, val).unwrap();
-                Ok(val)
+                let ptr = var_info.0;
+                let var_type = var_info.1;
+                let ast_type = var_info.2.clone();
+
+                let new_val = self.compile_expression(value)?;
+
+                // Add RC logic for ref-counted types
+                if self.is_rc_type(&ast_type) && new_val.is_pointer_value() {
+                    let new_ptr = new_val.into_pointer_value();
+
+                    // Retain new value
+                    self.build_rc_retain_inline(new_ptr);
+
+                    // Load and release old value
+                    let old_val = self.builder.build_load(var_type, ptr, "old_val").unwrap();
+                    if old_val.is_pointer_value() {
+                        let old_ptr = old_val.into_pointer_value();
+                        // Check if not null before releasing
+                        let is_null = self.builder.build_is_null(old_ptr, "is_null").unwrap();
+                        let function = self.current_function.unwrap();
+                        let release_block = self.context.append_basic_block(function, "release_old");
+                        let store_block = self.context.append_basic_block(function, "store_new");
+
+                        self.builder.build_conditional_branch(is_null, store_block, release_block).unwrap();
+
+                        self.builder.position_at_end(release_block);
+                        self.build_rc_release_inline(old_ptr);
+                        self.builder.build_unconditional_branch(store_block).unwrap();
+
+                        self.builder.position_at_end(store_block);
+                    }
+                }
+
+                self.builder.build_store(ptr, new_val).unwrap();
+                Ok(new_val)
             }
 
             Expression::ArrayLiteral { .. } => {

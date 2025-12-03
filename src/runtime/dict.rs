@@ -5,9 +5,10 @@ use std::ptr;
 const INITIAL_CAPACITY: i64 = 16;
 const LOAD_FACTOR_THRESHOLD: f64 = 0.75;
 
-// Import the runtime_error function
+// Import the runtime_error and RC functions
 extern "C" {
     fn runtime_error(message: *const i8);
+    fn rc_alloc(size: i64) -> *mut u8;
 }
 
 /// Dictionary entry structure (for chaining)
@@ -114,8 +115,8 @@ unsafe fn dict_rehash(dict: *mut Dict) {
 #[no_mangle]
 pub extern "C" fn dict_create() -> *mut Dict {
     unsafe {
-        let layout = Layout::new::<Dict>();
-        let dict = alloc(layout) as *mut Dict;
+        let dict_size = std::mem::size_of::<Dict>() as i64;
+        let dict = rc_alloc(dict_size) as *mut Dict;
 
         if dict.is_null() {
             eprintln!("Failed to allocate memory for dictionary");

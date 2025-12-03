@@ -7,7 +7,7 @@ use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, Functi
 use inkwell::basic_block::BasicBlock;
 use inkwell::{AddressSpace, IntPredicate, FloatPredicate};
 use inkwell::debug_info::{AsDIScope, DICompileUnit, DIFlagsConstants, DWARFEmissionKind, DWARFSourceLanguage, DebugInfoBuilder, DISubprogram};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // Loop context for break/continue
 struct LoopContext<'ctx> {
@@ -26,6 +26,12 @@ pub struct CodeGen<'ctx> {
     class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
     current_class: Option<String>, // Track current class being compiled
     loop_stack: Vec<LoopContext<'ctx>>, // Stack of loop contexts for break/continue
+    // RC Optimization: track variables that have been moved (ownership transferred)
+    moved_variables: HashSet<String>,
+    // RC Optimization: track remaining statements in current scope for last-use analysis
+    remaining_statements: Vec<Statement>,
+    // RC Optimization Phase 3: track variables that don't escape function scope
+    non_escaping_variables: HashSet<String>,
     // Debug info
     debug_builder: DebugInfoBuilder<'ctx>,
     compile_unit: DICompileUnit<'ctx>,
@@ -68,6 +74,9 @@ impl<'ctx> CodeGen<'ctx> {
             class_fields: HashMap::new(),
             current_class: None,
             loop_stack: Vec::new(),
+            moved_variables: HashSet::new(),
+            remaining_statements: Vec::new(),
+            non_escaping_variables: HashSet::new(),
             debug_builder,
             compile_unit,
             source_file: source_file.to_string(),
@@ -122,6 +131,177 @@ impl<'ctx> CodeGen<'ctx> {
         matches!(ws_type, Type::List(_) | Type::Dict(_, _) | Type::Custom(_))
     }
 
+    // OPTIMIZATION Phase 3: Check if expression causes variable to escape
+    fn expression_escapes_variable(&self, expr: &Expression, var_name: &str) -> bool {
+        match expr {
+            // Function calls cause escape (parameter could be stored/returned)
+            Expression::Call { args, .. } => {
+                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            }
+            // Returning the variable causes escape
+            Expression::Variable(name) if name == var_name => false, // Handled separately in Return
+            // Method calls on the variable don't cause escape (in-place operations)
+            Expression::MethodCall { object, args, .. } => {
+                // Only args can escape, not the object itself (it's used in-place)
+                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            }
+            // Assignment doesn't cause escape (just moves ownership)
+            Expression::Assignment { value, .. } => {
+                self.expression_escapes_variable(value, var_name)
+            }
+            // Binary/Unary operations don't cause escape
+            Expression::Binary { left, right, .. } => {
+                self.expression_escapes_variable(left, var_name) ||
+                self.expression_escapes_variable(right, var_name)
+            }
+            Expression::Unary { operand, .. } => {
+                self.expression_escapes_variable(operand, var_name)
+            }
+            // Indexing doesn't cause escape
+            Expression::Index { object, index, .. } => {
+                self.expression_escapes_variable(object, var_name) ||
+                self.expression_escapes_variable(index, var_name)
+            }
+            Expression::IndexAssignment { index, value, .. } => {
+                self.expression_escapes_variable(index, var_name) ||
+                self.expression_escapes_variable(value, var_name)
+            }
+            Expression::MemberAccess { object, .. } => {
+                self.expression_escapes_variable(object, var_name)
+            }
+            // Container literals don't cause escape (items are copied)
+            Expression::ListLiteral { elements } => {
+                elements.iter().any(|elem| self.expression_escapes_variable(elem, var_name))
+            }
+            Expression::DictLiteral { pairs } => {
+                pairs.iter().any(|(k, v)| {
+                    self.expression_escapes_variable(k, var_name) ||
+                    self.expression_escapes_variable(v, var_name)
+                })
+            }
+            Expression::FString { expressions, .. } => {
+                expressions.iter().any(|expr| self.expression_escapes_variable(expr, var_name))
+            }
+            _ => false, // Literals don't cause escape
+        }
+    }
+
+    // OPTIMIZATION Phase 3: Check if statement causes variable to escape
+    fn statement_escapes_variable(&self, stmt: &Statement, var_name: &str) -> bool {
+        match stmt {
+            Statement::Expression(expr) => self.expression_escapes_variable(expr, var_name),
+            Statement::Return(Some(expr)) => self.expression_uses_variable(expr, var_name),
+            Statement::VarDecl { initializer: Some(expr), .. } => {
+                self.expression_escapes_variable(expr, var_name)
+            }
+            Statement::If { condition, then_branch, elif_branches, else_branch } => {
+                self.expression_escapes_variable(condition, var_name) ||
+                then_branch.iter().any(|s| self.statement_escapes_variable(s, var_name)) ||
+                elif_branches.iter().any(|(cond, body)| {
+                    self.expression_escapes_variable(cond, var_name) ||
+                    body.iter().any(|s| self.statement_escapes_variable(s, var_name))
+                }) ||
+                else_branch.as_ref().map_or(false, |body| {
+                    body.iter().any(|s| self.statement_escapes_variable(s, var_name))
+                })
+            }
+            Statement::While { condition, body } => {
+                self.expression_escapes_variable(condition, var_name) ||
+                body.iter().any(|s| self.statement_escapes_variable(s, var_name))
+            }
+            Statement::For { iterable, body, .. } => {
+                self.expression_escapes_variable(iterable, var_name) ||
+                body.iter().any(|s| self.statement_escapes_variable(s, var_name))
+            }
+            Statement::Assert { condition, .. } => {
+                self.expression_escapes_variable(condition, var_name)
+            }
+            _ => false,
+        }
+    }
+
+    // OPTIMIZATION: Check if a variable is used in an expression
+    fn expression_uses_variable(&self, expr: &Expression, var_name: &str) -> bool {
+        match expr {
+            Expression::Variable(name) => name == var_name,
+            Expression::Binary { left, right, .. } => {
+                self.expression_uses_variable(left, var_name) ||
+                self.expression_uses_variable(right, var_name)
+            }
+            Expression::Unary { operand, .. } => {
+                self.expression_uses_variable(operand, var_name)
+            }
+            Expression::Call { args, .. } => {
+                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            }
+            Expression::Assignment { value, .. } => {
+                self.expression_uses_variable(value, var_name)
+            }
+            Expression::Index { object, index, .. } => {
+                self.expression_uses_variable(object, var_name) ||
+                self.expression_uses_variable(index, var_name)
+            }
+            Expression::IndexAssignment { index, value, .. } => {
+                self.expression_uses_variable(index, var_name) ||
+                self.expression_uses_variable(value, var_name)
+            }
+            Expression::MethodCall { object, args, .. } => {
+                self.expression_uses_variable(object, var_name) ||
+                args.iter().any(|arg| self.expression_uses_variable(arg, var_name))
+            }
+            Expression::MemberAccess { object, .. } => {
+                self.expression_uses_variable(object, var_name)
+            }
+            Expression::ListLiteral { elements } => {
+                elements.iter().any(|elem| self.expression_uses_variable(elem, var_name))
+            }
+            Expression::DictLiteral { pairs } => {
+                pairs.iter().any(|(k, v)| {
+                    self.expression_uses_variable(k, var_name) ||
+                    self.expression_uses_variable(v, var_name)
+                })
+            }
+            Expression::FString { expressions, .. } => {
+                expressions.iter().any(|expr| self.expression_uses_variable(expr, var_name))
+            }
+            _ => false, // Literals don't use variables
+        }
+    }
+
+    // OPTIMIZATION: Check if a variable is used in a statement
+    fn statement_uses_variable(&self, stmt: &Statement, var_name: &str) -> bool {
+        match stmt {
+            Statement::Expression(expr) => self.expression_uses_variable(expr, var_name),
+            Statement::Return(Some(expr)) => self.expression_uses_variable(expr, var_name),
+            Statement::VarDecl { initializer: Some(expr), .. } => {
+                self.expression_uses_variable(expr, var_name)
+            }
+            Statement::If { condition, then_branch, elif_branches, else_branch } => {
+                self.expression_uses_variable(condition, var_name) ||
+                then_branch.iter().any(|s| self.statement_uses_variable(s, var_name)) ||
+                elif_branches.iter().any(|(cond, body)| {
+                    self.expression_uses_variable(cond, var_name) ||
+                    body.iter().any(|s| self.statement_uses_variable(s, var_name))
+                }) ||
+                else_branch.as_ref().map_or(false, |body| {
+                    body.iter().any(|s| self.statement_uses_variable(s, var_name))
+                })
+            }
+            Statement::While { condition, body } => {
+                self.expression_uses_variable(condition, var_name) ||
+                body.iter().any(|s| self.statement_uses_variable(s, var_name))
+            }
+            Statement::For { iterable, body, .. } => {
+                self.expression_uses_variable(iterable, var_name) ||
+                body.iter().any(|s| self.statement_uses_variable(s, var_name))
+            }
+            Statement::Assert { condition, .. } => {
+                self.expression_uses_variable(condition, var_name)
+            }
+            _ => false,
+        }
+    }
+
     // Inline RC retain: increment reference count
     fn build_rc_retain_inline(&self, ptr: PointerValue<'ctx>) {
         let i64_type = self.context.i64_type();
@@ -159,9 +339,20 @@ impl<'ctx> CodeGen<'ctx> {
         self.builder.build_store(header, new_count).unwrap();
     }
 
-    // Release all RC variables in current scope
+    // Release all RC variables in current scope (except moved/non-escaping variables)
     fn release_scope_variables(&self) {
-        for (_name, (ptr, var_type, ast_type)) in &self.variables {
+        for (name, (ptr, var_type, ast_type)) in &self.variables {
+            // Skip variables that have been moved (ownership transferred)
+            if self.moved_variables.contains(name) {
+                continue;
+            }
+
+            // OPTIMIZATION Phase 3: Skip non-escaping variables
+            // They only exist in this scope, so cleanup happens automatically
+            if self.non_escaping_variables.contains(name) {
+                continue;
+            }
+
             if self.is_rc_type(ast_type) {
                 // Load the pointer value
                 let val = self.builder.build_load(*var_type, *ptr, "scope_val").unwrap();
@@ -742,6 +933,8 @@ impl<'ctx> CodeGen<'ctx> {
 
                 let saved_variables = self.variables.clone();
                 self.variables.clear();
+                self.moved_variables.clear(); // Clear moved set for new function scope
+                self.non_escaping_variables.clear(); // Clear non-escaping set for new function scope
                 self.current_function = Some(function);
 
                 for (i, param) in params.iter().enumerate() {
@@ -755,8 +948,35 @@ impl<'ctx> CodeGen<'ctx> {
                     self.variables.insert(param.name.clone(), (alloca, param_type, param.param_type.clone()));
                 }
 
+                // OPTIMIZATION Phase 3: Escape Analysis
+                // Analyze which RC variables don't escape the function scope
+                // These can skip RC operations entirely
+                if body.len() < 100 {  // Only analyze simple functions
+                    for stmt in body.iter() {
+                        if let Statement::VarDecl { name, type_annotation, .. } = stmt {
+                            if self.is_rc_type(type_annotation) {
+                                // Check if this variable escapes
+                                let escapes = body.iter().any(|s| self.statement_escapes_variable(s, name));
+
+                                if !escapes {
+                                    // Variable doesn't escape, mark it
+                                    self.non_escaping_variables.insert(name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let mut has_return = false;
-                for stmt in body {
+                for (i, stmt) in body.iter().enumerate() {
+                    // OPTIMIZATION: Set remaining statements for last-use analysis
+                    // Only analyze for simple cases to avoid performance issues with large functions
+                    self.remaining_statements = if i + 1 < body.len() && body.len() < 100 {
+                        body[i + 1..].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+
                     self.compile_statement(stmt)?;
                     if matches!(stmt, Statement::Return(_)) {
                         has_return = true;
@@ -1112,10 +1332,21 @@ impl<'ctx> CodeGen<'ctx> {
 
             Statement::Return(expr) => {
                 if let Some(e) = expr {
+                    // OPTIMIZATION: If returning a local variable, mark it as moved (transfer ownership)
+                    // This skips the release, eliminating unnecessary RC operations
+                    if let Expression::Variable(var_name) = e {
+                        if let Some((_, _, ast_type)) = self.variables.get(var_name) {
+                            if self.is_rc_type(ast_type) {
+                                // Mark variable as moved - it will not be released
+                                self.moved_variables.insert(var_name.clone());
+                            }
+                        }
+                    }
+
                     // Compute return value first (may call other functions)
                     let return_value = self.compile_expression(e)?;
 
-                    // Release all RC variables before returning
+                    // Release all RC variables before returning (except moved ones)
                     self.release_scope_variables();
 
                     // Pop function from call stack after computing return value
@@ -2064,14 +2295,43 @@ impl<'ctx> CodeGen<'ctx> {
                 let var_type = var_info.1;
                 let ast_type = var_info.2.clone();
 
+                // OPTIMIZATION: Check if this is a last-use move (x = y, where y is never used again)
+                let is_move = if let Expression::Variable(source_name) = &**value {
+                    if let Some((_, _, source_type)) = self.variables.get(source_name) {
+                        if self.is_rc_type(source_type) {
+                            // Check if source variable is used in remaining statements
+                            let is_last_use = !self.remaining_statements.iter().any(|stmt| {
+                                self.statement_uses_variable(stmt, source_name)
+                            });
+
+                            if is_last_use {
+                                // Mark source as moved - ownership transferred
+                                self.moved_variables.insert(source_name.clone());
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
                 let new_val = self.compile_expression(value)?;
 
                 // Add RC logic for ref-counted types
                 if self.is_rc_type(&ast_type) && new_val.is_pointer_value() {
                     let new_ptr = new_val.into_pointer_value();
 
-                    // Retain new value
-                    self.build_rc_retain_inline(new_ptr);
+                    // OPTIMIZATION: Skip retain if this is a move
+                    if !is_move {
+                        // Retain new value
+                        self.build_rc_retain_inline(new_ptr);
+                    }
 
                     // Load and release old value
                     let old_val = self.builder.build_load(var_type, ptr, "old_val").unwrap();

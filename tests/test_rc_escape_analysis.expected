@@ -1,0 +1,35 @@
+====================================
+RC Escape Analysis Tests (Phase 3)
+====================================
+
+Test 1: Non-escaping variable
+1
+Non-escaping test passed
+Test 2: Escaping via function call
+10
+Escaping via call test passed
+Test 3: Escaping via return
+100
+Escaping via return test passed
+Test 4: Multiple non-escaping variables
+1
+4
+30
+Multiple non-escaping test passed
+Test 5: Non-escaping dict
+100
+Dict non-escaping test passed
+Test 6: Mixed escaping/non-escaping
+5
+9
+Mixed test passed
+Test 7: Non-escaping in control flow
+1
+0
+2
+4
+Control flow test passed
+
+====================================
+All escape analysis tests passed!
+====================================

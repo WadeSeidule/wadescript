@@ -1,0 +1,34 @@
+=== IO Module Tests ===
+
+Test 1: io.exists (before create)
+File does not exist yet - PASS
+
+Test 2: io.open and io.write
+Opened file
+Write complete - PASS
+
+Test 3: io.exists (after create)
+File exists - PASS
+
+Test 4: io.read entire file
+Read content:
+Hello, WadeScript!
+Line 2
+Line 3
+
+Test 5: io.read_line
+Line 1:
+Hello, WadeScript!
+Line 2:
+Line 2
+Line 3:
+Line 3
+
+Test 6: io.open append mode
+After append:
+Hello, WadeScript!
+Line 2
+Line 3
+Appended line
+
+=== All IO Tests Passed ===

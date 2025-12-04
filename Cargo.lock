@@ -238,6 +238,7 @@ version = "0.1.0"
 dependencies = [
  "backtrace",
  "inkwell",
+ "lazy_static",
 ]
 
 [[package]]

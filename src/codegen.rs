@@ -616,6 +616,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_list_functions();
         self.declare_dict_functions();
         self.declare_string_functions();
+        self.declare_io_functions();
         self.declare_runtime_error_functions();
 
         // Phase 4: Mark built-in pure functions (don't cause escape)
@@ -964,6 +965,43 @@ impl<'ctx> CodeGen<'ctx> {
         self.functions.insert("str_char_at".to_string(), str_char_at_fn);
     }
 
+    fn declare_io_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let i32_type = self.context.i32_type();
+        let void_type = self.context.void_type();
+
+        // file_open(path_ptr, mode_ptr) -> i64 (file handle)
+        let file_open_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let file_open_fn = self.module.add_function("file_open", file_open_type, None);
+        self.functions.insert("file_open".to_string(), file_open_fn);
+
+        // file_read(handle) -> ptr (string contents)
+        let file_read_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let file_read_fn = self.module.add_function("file_read", file_read_type, None);
+        self.functions.insert("file_read".to_string(), file_read_fn);
+
+        // file_read_line(handle) -> ptr (string line)
+        let file_read_line_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let file_read_line_fn = self.module.add_function("file_read_line", file_read_line_type, None);
+        self.functions.insert("file_read_line".to_string(), file_read_line_fn);
+
+        // file_write(handle, content_ptr) -> void
+        let file_write_type = void_type.fn_type(&[i64_type.into(), ptr_type.into()], false);
+        let file_write_fn = self.module.add_function("file_write", file_write_type, None);
+        self.functions.insert("file_write".to_string(), file_write_fn);
+
+        // file_close(handle) -> void
+        let file_close_type = void_type.fn_type(&[i64_type.into()], false);
+        let file_close_fn = self.module.add_function("file_close", file_close_type, None);
+        self.functions.insert("file_close".to_string(), file_close_fn);
+
+        // file_exists(path_ptr) -> i64 (1 if exists, 0 if not)
+        let file_exists_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let file_exists_fn = self.module.add_function("file_exists", file_exists_type, None);
+        self.functions.insert("file_exists".to_string(), file_exists_fn);
+    }
+
     fn mark_builtin_pure_functions(&mut self) {
         // Phase 4: Mark functions that don't cause their RC parameters to escape
         // These functions either:
@@ -996,6 +1034,14 @@ impl<'ctx> CodeGen<'ctx> {
         self.pure_functions.insert("print_float".to_string());
         self.pure_functions.insert("print_str".to_string());
         self.pure_functions.insert("print_bool".to_string());
+
+        // File I/O functions - non-escaping for input strings
+        self.pure_functions.insert("file_open".to_string());
+        self.pure_functions.insert("file_read".to_string());
+        self.pure_functions.insert("file_read_line".to_string());
+        self.pure_functions.insert("file_write".to_string());
+        self.pure_functions.insert("file_close".to_string());
+        self.pure_functions.insert("file_exists".to_string());
     }
 
     fn declare_runtime_error_functions(&mut self) {
@@ -1107,7 +1153,15 @@ impl<'ctx> CodeGen<'ctx> {
                     name.clone()
                 };
 
-                let function = self.module.add_function(name, fn_type, None);
+                // Mangle function names to avoid C symbol conflicts
+                // Exception: "main" is the C entry point, can't be mangled
+                let mangled_name = if name == "main" {
+                    name.clone()
+                } else {
+                    format!("ws_{}", name)
+                };
+
+                let function = self.module.add_function(&mangled_name, fn_type, None);
                 self.functions.insert(function_key, function);
 
                 // Create debug info for this function

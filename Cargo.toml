@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 inkwell = { version = "0.5", features = ["llvm17-0"] }
 backtrace = "0.3"
+lazy_static = "1.4"
 
 [lib]
 name = "wadescript_runtime"

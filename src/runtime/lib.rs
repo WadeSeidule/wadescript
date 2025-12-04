@@ -1,6 +1,6 @@
 //! WadeScript Runtime Library
 //!
-//! Provides C-compatible functions for list, dictionary, and string operations.
+//! Provides C-compatible functions for list, dictionary, string, and I/O operations.
 //! This is compiled as a static library and linked with generated WadeScript programs.
 
 #![allow(dead_code)]
@@ -10,6 +10,7 @@ pub mod dict;
 pub mod string;
 pub mod exceptions;
 pub mod rc;
+pub mod io;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -22,6 +23,7 @@ pub use dict::*;
 pub use string::*;
 pub use exceptions::*;
 pub use rc::*;
+pub use io::*;
 
 // Global call stack for stack traces
 static CALL_STACK: Mutex<Vec<String>> = Mutex::new(Vec::new());

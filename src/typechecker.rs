@@ -27,6 +27,14 @@ impl TypeChecker {
         // Register built-in utility functions
         functions.insert("range".to_string(), (vec![Type::Int], Type::List(Box::new(Type::Int))));
 
+        // Register file I/O functions (used by std/io.ws)
+        functions.insert("file_open".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("file_read".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("file_read_line".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("file_write".to_string(), (vec![Type::Int, Type::Str], Type::Void));
+        functions.insert("file_close".to_string(), (vec![Type::Int], Type::Void));
+        functions.insert("file_exists".to_string(), (vec![Type::Str], Type::Int));
+
         TypeChecker {
             symbol_table: vec![HashMap::new()],
             functions,

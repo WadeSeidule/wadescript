@@ -18,6 +18,74 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use typechecker::TypeChecker;
 
+/// Get the standard library directory path
+fn get_std_lib_dir() -> Option<PathBuf> {
+    // Try multiple locations in order:
+    // 1. Relative to executable (for installed version)
+    // 2. Relative to current working directory (for development)
+    // 3. Relative to cargo manifest directory (for development)
+
+    // Try relative to executable
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let std_path = exe_dir.join("std");
+            if std_path.exists() {
+                return Some(std_path);
+            }
+            // Also try parent directory (for target/debug/wadescript -> std/)
+            if let Some(parent) = exe_dir.parent() {
+                if let Some(grandparent) = parent.parent() {
+                    let std_path = grandparent.join("std");
+                    if std_path.exists() {
+                        return Some(std_path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Try relative to current working directory
+    if let Ok(cwd) = env::current_dir() {
+        let std_path = cwd.join("std");
+        if std_path.exists() {
+            return Some(std_path);
+        }
+    }
+
+    None
+}
+
+/// Check if an import path is a standard library module
+fn is_std_lib_import(path: &str) -> bool {
+    // Standard library imports are simple names without path separators
+    // AND must exist in the std lib directory
+    if path.contains('/') || path.contains('\\') || path.starts_with('.') {
+        return false;
+    }
+
+    // Check if the module exists in std lib
+    if let Some(std_dir) = get_std_lib_dir() {
+        let module_path = std_dir.join(format!("{}.ws", path));
+        return module_path.exists();
+    }
+
+    false
+}
+
+/// Resolve a standard library import to its file path
+fn resolve_std_import(module_name: &str) -> Result<PathBuf, String> {
+    let std_dir = get_std_lib_dir()
+        .ok_or_else(|| format!("Standard library not found for import '{}'", module_name))?;
+
+    let module_path = std_dir.join(format!("{}.ws", module_name));
+
+    if module_path.exists() {
+        Ok(module_path)
+    } else {
+        Err(format!("Standard library module '{}' not found (looked in {:?})", module_name, std_dir))
+    }
+}
+
 fn load_program_with_imports(file_path: &str, imported: &mut HashSet<PathBuf>) -> Result<Program, String> {
     // Add .ws extension if not present
     let file_path_with_ext = if file_path.ends_with(".ws") {
@@ -45,17 +113,20 @@ fn load_program_with_imports(file_path: &str, imported: &mut HashSet<PathBuf>) -
     // Process import statements
     for statement in &program.statements {
         if let Statement::Import { path } = statement {
-            // Resolve import path relative to the current file
-            let current_dir = abs_path.parent().unwrap();
-
-            // Add .ws extension if not present
-            let import_path_with_ext = if path.ends_with(".ws") {
-                path.clone()
+            // Determine if this is a standard library import or relative import
+            let import_path = if is_std_lib_import(path) {
+                // Standard library import (e.g., import "io")
+                resolve_std_import(path)?
             } else {
-                format!("{}.ws", path)
+                // Relative import
+                let current_dir = abs_path.parent().unwrap();
+                let import_path_with_ext = if path.ends_with(".ws") {
+                    path.clone()
+                } else {
+                    format!("{}.ws", path)
+                };
+                current_dir.join(&import_path_with_ext)
             };
-
-            let import_path = current_dir.join(&import_path_with_ext);
             let import_path_str = import_path.to_str().unwrap();
 
             // Extract module name from path (filename without extension)

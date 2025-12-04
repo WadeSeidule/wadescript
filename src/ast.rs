@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,10 +120,18 @@ pub struct Parameter {
     pub param_type: Type,
 }
 
+/// Represents a decorator applied to a field (e.g., @arg, @option)
+#[derive(Debug, Clone)]
+pub struct Decorator {
+    pub name: String,                    // "arg" or "option"
+    pub args: HashMap<String, String>,   // Named arguments like help="...", short="v"
+}
+
 #[derive(Debug, Clone)]
 pub struct Field {
     pub name: String,
     pub field_type: Type,
+    pub decorators: Vec<Decorator>,      // Decorators on this field
 }
 
 #[derive(Debug, Clone)]

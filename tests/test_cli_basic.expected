@@ -1,0 +1,21 @@
+argc >= 1:
+True
+args.length >= 1:
+True
+argv(0) not empty:
+True
+parse_int 42:
+42
+parse_bool true:
+True
+parse_bool false:
+False
+starts_with --foo, --:
+True
+starts_with -x, --:
+False
+str_eq hello, hello:
+True
+str_eq hello, world:
+False
+CLI module works!

@@ -113,6 +113,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_dict_functions();
         self.declare_string_functions();
         self.declare_io_functions();
+        self.declare_cli_functions();
         self.declare_runtime_error_functions();
         self.mark_builtin_pure_functions();
     }
@@ -711,6 +712,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_dict_functions();
         self.declare_string_functions();
         self.declare_io_functions();
+        self.declare_cli_functions();
         self.declare_runtime_error_functions();
 
         // Phase 4: Mark built-in pure functions (don't cause escape)
@@ -1093,6 +1095,51 @@ impl<'ctx> CodeGen<'ctx> {
         let file_exists_type = i64_type.fn_type(&[ptr_type.into()], false);
         let file_exists_fn = self.module.add_function("file_exists", file_exists_type, None);
         self.functions.insert("file_exists".to_string(), file_exists_fn);
+    }
+
+    fn declare_cli_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+
+        // cli_get_argc() -> i64
+        let argc_type = i64_type.fn_type(&[], false);
+        let argc_fn = self.module.add_function("cli_get_argc", argc_type, None);
+        self.functions.insert("cli_get_argc".to_string(), argc_fn);
+
+        // cli_get_argv(index: i64) -> ptr (C string, do not free)
+        let argv_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let argv_fn = self.module.add_function("cli_get_argv", argv_type, None);
+        self.functions.insert("cli_get_argv".to_string(), argv_fn);
+
+        // cli_get_argv_copy(index: i64) -> ptr (C string, caller owns)
+        let argv_copy_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let argv_copy_fn = self.module.add_function("cli_get_argv_copy", argv_copy_type, None);
+        self.functions.insert("cli_get_argv_copy".to_string(), argv_copy_fn);
+
+        // cli_parse_int(s: ptr) -> i64
+        let parse_int_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let parse_int_fn = self.module.add_function("cli_parse_int", parse_int_type, None);
+        self.functions.insert("cli_parse_int".to_string(), parse_int_fn);
+
+        // cli_parse_bool(s: ptr) -> i64
+        let parse_bool_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let parse_bool_fn = self.module.add_function("cli_parse_bool", parse_bool_type, None);
+        self.functions.insert("cli_parse_bool".to_string(), parse_bool_fn);
+
+        // cli_starts_with(s: ptr, prefix: ptr) -> i64
+        let starts_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let starts_fn = self.module.add_function("cli_starts_with", starts_type, None);
+        self.functions.insert("cli_starts_with".to_string(), starts_fn);
+
+        // cli_str_eq(a: ptr, b: ptr) -> i64
+        let eq_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let eq_fn = self.module.add_function("cli_str_eq", eq_type, None);
+        self.functions.insert("cli_str_eq".to_string(), eq_fn);
+
+        // cli_after_prefix(s: ptr, prefix: ptr) -> ptr
+        let after_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let after_fn = self.module.add_function("cli_after_prefix", after_type, None);
+        self.functions.insert("cli_after_prefix".to_string(), after_fn);
     }
 
     fn mark_builtin_pure_functions(&mut self) {

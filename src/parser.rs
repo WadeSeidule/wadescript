@@ -280,8 +280,15 @@ impl Parser {
 
         self.skip_newlines();
 
-        // Parse field declarations first
+        // Parse field declarations first (with optional decorators)
         while !self.check(&Token::RightBrace) && !self.is_at_end() && !self.check(&Token::Def) {
+            // Collect decorators before field
+            let mut decorators = Vec::new();
+            while self.check(&Token::At) {
+                decorators.push(self.parse_decorator());
+                self.skip_newlines();
+            }
+
             // Field declaration: name: type
             if let Token::Identifier(field_name) = self.advance() {
                 self.consume(Token::Colon, "Expected ':' after field name");
@@ -289,6 +296,7 @@ impl Parser {
                 fields.push(crate::ast::Field {
                     name: field_name,
                     field_type,
+                    decorators,
                 });
                 self.skip_newlines();
             } else {
@@ -477,6 +485,51 @@ impl Parser {
         }
 
         statements
+    }
+
+    /// Parse a decorator: @name or @name(key="value", ...)
+    fn parse_decorator(&mut self) -> crate::ast::Decorator {
+        self.consume(Token::At, "Expected '@'");
+
+        let name = if let Token::Identifier(n) = self.advance() {
+            n
+        } else {
+            panic!("Expected decorator name after '@'");
+        };
+
+        let mut args = std::collections::HashMap::new();
+
+        // Check for optional arguments: @name(key="value", ...)
+        if self.match_token(&[Token::LeftParen]) {
+            // Parse named arguments
+            if !self.check(&Token::RightParen) {
+                loop {
+                    // Parse: key="value"
+                    let key = if let Token::Identifier(k) = self.advance() {
+                        k
+                    } else {
+                        panic!("Expected argument name in decorator");
+                    };
+
+                    self.consume(Token::Equal, "Expected '=' after decorator argument name");
+
+                    let value = if let Token::StringLiteral(v) = self.advance() {
+                        v
+                    } else {
+                        panic!("Expected string value for decorator argument");
+                    };
+
+                    args.insert(key, value);
+
+                    if !self.match_token(&[Token::Comma]) {
+                        break;
+                    }
+                }
+            }
+            self.consume(Token::RightParen, "Expected ')' after decorator arguments");
+        }
+
+        crate::ast::Decorator { name, args }
     }
 
     fn parse_type(&mut self) -> Type {

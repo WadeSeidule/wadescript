@@ -35,6 +35,16 @@ impl TypeChecker {
         functions.insert("file_close".to_string(), (vec![Type::Int], Type::Void));
         functions.insert("file_exists".to_string(), (vec![Type::Str], Type::Int));
 
+        // Register CLI functions (used by std/cli.ws)
+        functions.insert("cli_get_argc".to_string(), (vec![], Type::Int));
+        functions.insert("cli_get_argv".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("cli_get_argv_copy".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("cli_parse_int".to_string(), (vec![Type::Str], Type::Int));
+        functions.insert("cli_parse_bool".to_string(), (vec![Type::Str], Type::Int));
+        functions.insert("cli_starts_with".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("cli_str_eq".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("cli_after_prefix".to_string(), (vec![Type::Str, Type::Str], Type::Str));
+
         TypeChecker {
             symbol_table: vec![HashMap::new()],
             functions,
@@ -153,6 +163,11 @@ impl TypeChecker {
                 fields,
                 methods,
             } => {
+                // Validate decorators on fields
+                for field in fields {
+                    self.validate_field_decorators(name, field)?;
+                }
+
                 // Store class fields in order and in a map
                 let mut ordered_fields = Vec::new();
                 let mut field_map = HashMap::new();
@@ -1006,6 +1021,52 @@ impl TypeChecker {
         }
     }
 
+    /// Validate decorators on a class field
+    fn validate_field_decorators(&self, class_name: &str, field: &Field) -> Result<(), String> {
+        for decorator in &field.decorators {
+            match decorator.name.as_str() {
+                "arg" => {
+                    // @arg decorator is for positional arguments, only valid on str fields
+                    if field.field_type != Type::Str {
+                        return Err(format!(
+                            "Class '{}': @arg decorator on field '{}' requires type str, got {}",
+                            class_name, field.name, field.field_type
+                        ));
+                    }
+                }
+                "option" => {
+                    // @option decorator is for named options, valid on str, int, bool
+                    match &field.field_type {
+                        Type::Str | Type::Int | Type::Bool => {}
+                        _ => {
+                            return Err(format!(
+                                "Class '{}': @option decorator on field '{}' requires type str, int, or bool, got {}",
+                                class_name, field.name, field.field_type
+                            ));
+                        }
+                    }
+
+                    // Validate 'short' argument if present - must be single character
+                    if let Some(short_val) = decorator.args.get("short") {
+                        if short_val.len() != 1 {
+                            return Err(format!(
+                                "Class '{}': @option decorator on field '{}' has invalid short='{}', must be single character",
+                                class_name, field.name, short_val
+                            ));
+                        }
+                    }
+                }
+                other => {
+                    return Err(format!(
+                        "Class '{}': Unknown decorator '@{}' on field '{}'",
+                        class_name, other, field.name
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn types_compatible(&self, expected: &Type, actual: &Type) -> bool {
         match (expected, actual) {
             // Float accepts Int
@@ -1641,5 +1702,86 @@ def main() -> int {
         let result = typecheck_source(source);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Undefined variable"));
+    }
+
+    #[test]
+    fn test_decorator_arg_valid() {
+        let source = r#"
+class Args {
+    @arg(help="Input file")
+    input_file: str
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_decorator_arg_wrong_type() {
+        let source = r#"
+class Args {
+    @arg(help="Count")
+    count: int
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("@arg decorator") && err.contains("requires type str"));
+    }
+
+    #[test]
+    fn test_decorator_option_valid_types() {
+        let source = r#"
+class Args {
+    @option(short="o", long="output")
+    output: str
+
+    @option(short="n", long="number")
+    number: int
+
+    @option(short="v", long="verbose")
+    verbose: bool
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_decorator_option_wrong_type() {
+        let source = r#"
+class Args {
+    @option(long="data")
+    data: list[int]
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("@option decorator"));
+    }
+
+    #[test]
+    fn test_decorator_option_short_single_char() {
+        let source = r#"
+class Args {
+    @option(short="ab", long="output")
+    output: str
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("single character"));
+    }
+
+    #[test]
+    fn test_decorator_unknown() {
+        let source = r#"
+class Args {
+    @unknown(foo="bar")
+    field: str
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown decorator"));
     }
 }

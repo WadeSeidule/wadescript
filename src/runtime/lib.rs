@@ -11,6 +11,7 @@ pub mod string;
 pub mod exceptions;
 pub mod rc;
 pub mod io;
+pub mod cli;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -24,6 +25,7 @@ pub use string::*;
 pub use exceptions::*;
 pub use rc::*;
 pub use io::*;
+pub use cli::*;
 
 // Global call stack for stack traces
 static CALL_STACK: Mutex<Vec<String>> = Mutex::new(Vec::new());

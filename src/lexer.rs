@@ -112,6 +112,7 @@ pub enum Token {
     Arrow,
     Dot,
     Question,   // ? for nullable type suffix (str?)
+    At,         // @ for decorators
 
     // Special
     Newline,
@@ -513,6 +514,10 @@ impl Lexer {
                 Some('?') => {
                     self.advance();
                     return self.make_token(Token::Question, location);
+                }
+                Some('@') => {
+                    self.advance();
+                    return self.make_token(Token::At, location);
                 }
                 Some(ch) => {
                     panic!("Unexpected character: {}", ch);

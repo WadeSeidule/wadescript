@@ -36,6 +36,7 @@ usage() {
     echo "  ws run <file.ws> [args...]      Compile and run WadeScript file"
     echo "  ws build <file.ws> -o <name>    Compile with custom output name"
     echo "  ws test                         Run all tests in tests/ directory"
+    echo "  ws repl                         Start interactive REPL"
     echo ""
     echo "Examples:"
     echo "  ws build examples/hello.ws"
@@ -43,6 +44,7 @@ usage() {
     echo "  ws build main.ws -o myapp"
     echo "  ws run examples/factorial.ws 10"
     echo "  ws test"
+    echo "  ws repl"
     exit 1
 }
 
@@ -53,16 +55,16 @@ fi
 
 COMMAND="$1"
 
-# Handle test command separately (no source file required)
-if [ "$COMMAND" = "test" ]; then
-    # Test command handled below
+# Handle commands that don't require a source file
+if [ "$COMMAND" = "test" ] || [ "$COMMAND" = "repl" ]; then
+    # These commands are handled below without a source file
     true
 elif [ $# -lt 2 ]; then
     usage
 fi
 
-# Set source file for non-test commands
-if [ "$COMMAND" != "test" ]; then
+# Set source file for commands that need it
+if [ "$COMMAND" != "test" ] && [ "$COMMAND" != "repl" ]; then
     SOURCE_FILE="$2"
 
     # Check if source file exists
@@ -134,6 +136,12 @@ case "$COMMAND" in
             echo "$COMPILE_OUTPUT"
             exit 1
         fi
+        ;;
+
+    repl)
+        # Start interactive REPL
+        echo -e "${BLUE}Starting WadeScript REPL...${NC}"
+        "$WADESCRIPT_BIN" repl
         ;;
 
     test)

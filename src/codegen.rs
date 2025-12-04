@@ -96,6 +96,63 @@ impl<'ctx> CodeGen<'ctx> {
         &self.module
     }
 
+    /// Transfer ownership of the module (for JIT)
+    pub fn take_module(self) -> Module<'ctx> {
+        self.module
+    }
+
+    /// Declare all runtime functions (for REPL JIT)
+    pub fn declare_runtime_functions(&mut self) {
+        self.declare_printf();
+        self.declare_memory_functions();
+        self.declare_builtin_functions();
+        self.declare_list_functions();
+        self.declare_dict_functions();
+        self.declare_string_functions();
+        self.declare_io_functions();
+        self.declare_runtime_error_functions();
+        self.mark_builtin_pure_functions();
+    }
+
+    /// Declare an external user-defined function (for REPL cross-input calls)
+    pub fn declare_external_function(&mut self, name: &str, param_types: &[Type], return_type: &Type) {
+        let llvm_param_types: Vec<BasicMetadataTypeEnum> = param_types
+            .iter()
+            .map(|t| self.get_llvm_type(t).into())
+            .collect();
+
+        let fn_type = if *return_type == Type::Void {
+            self.context.void_type().fn_type(&llvm_param_types, false)
+        } else {
+            let ret_type = self.get_llvm_type(return_type);
+            ret_type.fn_type(&llvm_param_types, false)
+        };
+
+        // Use mangled name (CodeGen adds ws_ prefix)
+        let mangled_name = format!("ws_{}", name);
+        let function = self.module.add_function(&mangled_name, fn_type, None);
+        self.functions.insert(name.to_string(), function);
+    }
+
+    /// Position builder at end of a basic block (reserved for future use)
+    #[allow(dead_code)]
+    pub fn position_at_end(&self, block: BasicBlock<'ctx>) {
+        self.builder.position_at_end(block);
+    }
+
+    /// Build a return instruction with an integer value (reserved for future use)
+    #[allow(dead_code)]
+    pub fn build_return_int(&self, value: inkwell::values::IntValue<'ctx>) -> Result<(), String> {
+        self.builder.build_return(Some(&value))
+            .map_err(|e| format!("Failed to build return: {:?}", e))?;
+        Ok(())
+    }
+
+    /// Compile a statement for REPL (simplified, no function wrapping)
+    pub fn compile_statement_repl(&mut self, stmt: &Statement) -> Result<(), String> {
+        self.compile_statement(stmt)
+    }
+
     fn get_llvm_type(&self, ws_type: &Type) -> BasicTypeEnum<'ctx> {
         match ws_type {
             Type::Int => self.context.i64_type().as_basic_type_enum(),
@@ -984,7 +1041,6 @@ impl<'ctx> CodeGen<'ctx> {
     fn declare_io_functions(&mut self) {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let i64_type = self.context.i64_type();
-        let i32_type = self.context.i32_type();
         let void_type = self.context.void_type();
 
         // file_open(path_ptr, mode_ptr) -> i64 (file handle)

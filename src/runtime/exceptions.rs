@@ -19,6 +19,7 @@ pub struct JmpBuf {
 
 // External C functions
 extern "C" {
+    #[allow(dead_code)]
     pub fn setjmp(env: *mut JmpBuf) -> c_int;
     pub fn longjmp(env: *mut JmpBuf, val: c_int) -> !;
 }

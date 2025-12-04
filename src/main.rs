@@ -1,7 +1,10 @@
 mod ast;
 mod codegen;
+mod jit;
 mod lexer;
 mod parser;
+mod repl;
+mod runtime;
 mod typechecker;
 
 use ast::{Program, Statement};
@@ -168,7 +171,20 @@ fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: wadescript <input_file.ws> [--emit-llvm]");
+        eprintln!("       wadescript repl");
         std::process::exit(1);
+    }
+
+    // Check for REPL command
+    if args[1] == "repl" {
+        match repl::Repl::new() {
+            Ok(mut r) => r.run(),
+            Err(e) => {
+                eprintln!("Failed to start REPL: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
     }
 
     let input_file = &args[1];

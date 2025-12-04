@@ -94,28 +94,25 @@ Hello, REPL!
 Goodbye!
 ```
 
-## Limitations
+## Variable Persistence
 
-### Variable Scope
-Variables declared in one input do not persist to subsequent inputs. Each input runs in its own function scope:
+Variables declared in the REPL persist across inputs:
 
 ```
 >>> x: int = 42
 >>> print_int(x)
-Error: Undefined variable 'x'
+42
+>>> x = 100
+>>> print_int(x)
+100
+>>> y: int = x + 10
+>>> print_int(y)
+110
 ```
 
-To work with persistent data, wrap your code in functions:
+Variables can be used in subsequent expressions, modified, and referenced when creating new variables.
 
-```
->>> def work_with_data() -> void {
-...     x: int = 42
-...     y: int = x * 2
-...     print_int(y)
-... }
->>> work_with_data()
-84
-```
+## Limitations
 
 ### No Import Support
 The REPL currently does not support import statements. All code must be self-contained.

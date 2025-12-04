@@ -283,6 +283,30 @@ run_repl_test "REPL continues after error" \
 echo ""
 
 # ============================================
+# Variable Persistence Tests
+# ============================================
+echo -e "${BLUE}Variable Persistence Tests${NC}"
+echo "---"
+
+run_repl_test "variable persists to next input" \
+    'x: int = 42\nprint_int(x)\nexit' \
+    "42"
+
+run_repl_test "variable can be modified" \
+    'x: int = 10\nx = 20\nprint_int(x)\nexit' \
+    "20"
+
+run_repl_test "multiple variables persist" \
+    'a: int = 5\nb: int = 10\nprint_int(a + b)\nexit' \
+    "15"
+
+run_repl_test "variable used in expression" \
+    'x: int = 100\ny: int = x * 2\nprint_int(y)\nexit' \
+    "200"
+
+echo ""
+
+# ============================================
 # Exit Tests
 # ============================================
 echo -e "${BLUE}Exit Tests${NC}"

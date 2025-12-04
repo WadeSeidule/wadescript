@@ -15,11 +15,11 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::typechecker::TypeChecker;
 
-/// Persistent variable in REPL (reserved for future use)
-#[allow(dead_code)]
+/// Persistent variable in REPL
 struct ReplVariable {
     ws_type: Type,
     ptr: *mut u8,  // Pointer to allocated memory
+    size: usize,   // Size of allocation
 }
 
 /// User-defined function info for forward declarations
@@ -34,8 +34,7 @@ pub struct Repl {
     context: &'static Context,
     /// Type checker with persistent symbol table
     type_checker: TypeChecker,
-    /// Variables persisted across REPL inputs (reserved for future use)
-    #[allow(dead_code)]
+    /// Variables persisted across REPL inputs
     variables: HashMap<String, ReplVariable>,
     /// User-defined functions for forward declarations
     user_functions: HashMap<String, UserFunction>,
@@ -49,6 +48,50 @@ pub struct Repl {
 }
 
 impl Repl {
+    /// Get the size of a WadeScript type in bytes
+    fn type_size(ws_type: &Type) -> usize {
+        match ws_type {
+            Type::Int => 8,    // i64
+            Type::Float => 8,  // f64
+            Type::Bool => 1,   // i1 (stored as byte)
+            Type::Str => 8,    // pointer
+            Type::Void => 0,
+            Type::List(_) => 8,  // pointer
+            Type::Dict(_, _) => 8,  // pointer
+            Type::Array(inner, size) => Self::type_size(inner) * (*size as usize),
+            Type::Optional(_) => 8,  // pointer (nullable)
+            Type::Custom(_) => 8,  // pointer to struct
+            Type::Exception => 8,  // pointer
+        }
+    }
+
+    /// Allocate memory for a variable and register it with JIT
+    fn allocate_variable(&mut self, name: &str, ws_type: &Type) {
+        // Don't re-allocate if already exists
+        if self.variables.contains_key(name) {
+            return;
+        }
+
+        let size = Self::type_size(ws_type);
+        if size == 0 {
+            return;  // Don't allocate void type
+        }
+
+        // Allocate zeroed memory
+        let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+
+        // Register with JIT
+        self.jit.register_variable(name, ptr);
+
+        // Store in our map
+        self.variables.insert(name.to_string(), ReplVariable {
+            ws_type: ws_type.clone(),
+            ptr,
+            size,
+        });
+    }
+
     /// Create a new REPL instance
     pub fn new() -> Result<Self, String> {
         // Leak the context to get 'static lifetime for JIT
@@ -245,6 +288,17 @@ impl Repl {
         brace_count == 0 && paren_count == 0 && bracket_count == 0 && !in_string
     }
 
+    /// Extract variable declarations from statements
+    fn extract_var_declarations(statements: &[Statement]) -> Vec<(String, Type)> {
+        let mut vars = Vec::new();
+        for stmt in statements {
+            if let Statement::VarDecl { name, type_annotation, .. } = stmt {
+                vars.push((name.clone(), type_annotation.clone()));
+            }
+        }
+        vars
+    }
+
     /// Evaluate a REPL input
     fn eval(&mut self, input: &str) -> Result<Option<String>, String> {
         // Parse the input
@@ -258,6 +312,21 @@ impl Repl {
             return Ok(None);
         }
 
+        // Extract variable declarations from this input
+        let new_vars = Self::extract_var_declarations(&program.statements);
+
+        // Register existing persisted variables with type checker
+        for (name, var) in &self.variables {
+            self.type_checker.register_repl_variable(name, &var.ws_type);
+        }
+
+        // Allocate memory for new variables BEFORE compilation
+        for (name, var_type) in &new_vars {
+            self.allocate_variable(name, var_type);
+            // Also register new variables with type checker
+            self.type_checker.register_repl_variable(name, var_type);
+        }
+
         // Generate unique entry function name
         let entry_name = self.jit.next_entry_name();
 
@@ -268,7 +337,7 @@ impl Repl {
         self.type_checker.check_program(&wrapped_program)?;
 
         // Compile to LLVM IR
-        let module = self.compile_repl_input_direct(&wrapped_program)?;
+        let module = self.compile_repl_input_direct(&wrapped_program, &new_vars)?;
 
         // Add module to JIT
         self.jit.add_module(module)?;
@@ -296,7 +365,7 @@ impl Repl {
     }
 
     /// Compile a pre-wrapped REPL program to LLVM module
-    fn compile_repl_input_direct(&mut self, program: &Program) -> Result<Module<'static>, String> {
+    fn compile_repl_input_direct(&mut self, program: &Program, new_vars: &[(String, Type)]) -> Result<Module<'static>, String> {
         let mut codegen = CodeGen::new(self.context, "repl_module", "<repl>");
 
         // Declare runtime functions
@@ -306,6 +375,18 @@ impl Repl {
         for (name, func_info) in &self.user_functions {
             let param_types: Vec<Type> = func_info.params.iter().map(|(_, t)| t.clone()).collect();
             codegen.declare_external_function(name, &param_types, &func_info.return_type);
+        }
+
+        // Declare all existing persisted variables as external globals
+        for (name, var) in &self.variables {
+            codegen.declare_repl_variable(name, &var.ws_type);
+        }
+
+        // Declare new variables that will be created in this input
+        for (name, var_type) in new_vars {
+            if !self.variables.contains_key(name) {
+                codegen.declare_repl_variable(name, var_type);
+            }
         }
 
         // Track any new function definitions in this input

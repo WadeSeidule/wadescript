@@ -143,6 +143,19 @@ impl<'ctx> JitEngine<'ctx> {
         format!("__repl_entry_{}__", self.input_counter)
     }
 
+    /// Register a persistent variable's address with the JIT
+    pub fn register_variable(&self, name: &str, addr: *mut u8) {
+        use std::ffi::CString;
+        let symbol_name = format!("__repl_var_{}__", name);
+        let cname = CString::new(symbol_name).unwrap();
+        unsafe {
+            extern "C" {
+                fn LLVMAddSymbol(symbolName: *const std::os::raw::c_char, symbolValue: *mut std::ffi::c_void);
+            }
+            LLVMAddSymbol(cname.as_ptr(), addr as *mut std::ffi::c_void);
+        }
+    }
+
     /// Get the LLVM context (reserved for future use)
     #[allow(dead_code)]
     pub fn context(&self) -> &'ctx Context {

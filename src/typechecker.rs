@@ -67,6 +67,13 @@ impl TypeChecker {
         None
     }
 
+    /// Register a REPL variable in the global scope (for variable persistence)
+    pub fn register_repl_variable(&mut self, name: &str, var_type: &Type) {
+        if let Some(scope) = self.symbol_table.first_mut() {
+            scope.insert(name.to_string(), var_type.clone());
+        }
+    }
+
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // Store module information
         self.modules = program.modules.clone();

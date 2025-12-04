@@ -37,6 +37,8 @@ pub struct CodeGen<'ctx> {
     // RC Optimization Phase 4b: track loop-invariant variables
     loop_nesting_depth: usize,
     loop_invariant_variables: HashSet<String>,
+    // REPL: global variables that persist across function scopes
+    repl_globals: HashSet<String>,
     // Debug info
     debug_builder: DebugInfoBuilder<'ctx>,
     compile_unit: DICompileUnit<'ctx>,
@@ -85,6 +87,7 @@ impl<'ctx> CodeGen<'ctx> {
             pure_functions: HashSet::new(),
             loop_nesting_depth: 0,
             loop_invariant_variables: HashSet::new(),
+            repl_globals: HashSet::new(),
             debug_builder,
             compile_unit,
             source_file: source_file.to_string(),
@@ -132,6 +135,24 @@ impl<'ctx> CodeGen<'ctx> {
         let mangled_name = format!("ws_{}", name);
         let function = self.module.add_function(&mangled_name, fn_type, None);
         self.functions.insert(name.to_string(), function);
+    }
+
+    /// Declare an external global variable for REPL (persisted across inputs)
+    pub fn declare_repl_variable(&mut self, name: &str, var_type: &Type) {
+        let llvm_type = self.get_llvm_type(var_type);
+        let symbol_name = format!("__repl_var_{}__", name);
+
+        // Add global variable declaration (external linkage)
+        let global = self.module.add_global(llvm_type, Some(AddressSpace::default()), &symbol_name);
+        global.set_linkage(inkwell::module::Linkage::External);
+
+        // Store in variables map so code can reference it
+        // The global acts as a pointer to the value
+        let ptr = global.as_pointer_value();
+        self.variables.insert(name.to_string(), (ptr, llvm_type, var_type.clone()));
+
+        // Mark as REPL global so it persists across function scopes
+        self.repl_globals.insert(name.to_string());
     }
 
     /// Position builder at end of a basic block (reserved for future use)
@@ -1179,7 +1200,15 @@ impl<'ctx> CodeGen<'ctx> {
                 initializer,
             } => {
                 let var_type = self.get_llvm_type(type_annotation);
-                let alloca = self.builder.build_alloca(var_type, name).unwrap();
+
+                // Check if this is a REPL variable (already declared as external global)
+                let ptr = if let Some((existing_ptr, _, _)) = self.variables.get(name) {
+                    // REPL variable: use existing global pointer
+                    *existing_ptr
+                } else {
+                    // Normal variable: create local alloca
+                    self.builder.build_alloca(var_type, name).unwrap()
+                };
 
                 if let Some(init_expr) = initializer {
                     let init_value = self.compile_expression(init_expr)?;
@@ -1187,16 +1216,16 @@ impl<'ctx> CodeGen<'ctx> {
                     // For RC types, retain the initial value (it starts with ref_count=1 from allocation)
                     // No need to retain here since the allocation already gives us ownership
 
-                    self.builder.build_store(alloca, init_value).unwrap();
+                    self.builder.build_store(ptr, init_value).unwrap();
                 } else {
                     // Initialize RC types to null to prevent releasing garbage
                     if self.is_rc_type(type_annotation) {
                         let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
-                        self.builder.build_store(alloca, null_ptr).unwrap();
+                        self.builder.build_store(ptr, null_ptr).unwrap();
                     }
                 }
 
-                self.variables.insert(name.clone(), (alloca, var_type, type_annotation.clone()));
+                self.variables.insert(name.clone(), (ptr, var_type, type_annotation.clone()));
                 Ok(())
             }
 
@@ -1279,7 +1308,14 @@ impl<'ctx> CodeGen<'ctx> {
                 ).unwrap();
 
                 let saved_variables = self.variables.clone();
+                // Clear local variables but preserve REPL globals
+                let repl_vars: HashMap<String, _> = self.variables
+                    .iter()
+                    .filter(|(name, _)| self.repl_globals.contains(*name))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
                 self.variables.clear();
+                self.variables.extend(repl_vars);
                 self.moved_variables.clear(); // Clear moved set for new function scope
                 self.non_escaping_variables.clear(); // Clear non-escaping set for new function scope
                 self.current_function = Some(function);

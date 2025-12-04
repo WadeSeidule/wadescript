@@ -634,9 +634,17 @@ impl TypeChecker {
                 }
 
                 // Handle .length property for arrays, lists, and strings
+                // Also handle Optional types by unwrapping and checking inner type
                 if member == "length" {
-                    match obj_type {
+                    match &obj_type {
                         Type::Array(_, _) | Type::List(_) | Type::Str => Ok(Type::Int),
+                        Type::Optional(inner) => {
+                            // Allow .length on Optional if inner type supports it
+                            match inner.as_ref() {
+                                Type::Array(_, _) | Type::List(_) | Type::Str => Ok(Type::Int),
+                                _ => Err(format!("Type {} has no property '{}'", obj_type, member)),
+                            }
+                        }
                         _ => Err(format!("Type {} has no property '{}'", obj_type, member)),
                     }
                 } else {
@@ -732,7 +740,13 @@ impl TypeChecker {
                 let obj_type = self.check_expression(object)?;
                 let idx_type = self.check_expression(index)?;
 
-                match obj_type {
+                // Handle Optional types by unwrapping
+                let base_type = match &obj_type {
+                    Type::Optional(inner) => inner.as_ref().clone(),
+                    other => other.clone(),
+                };
+
+                match base_type {
                     Type::Array(elem_type, _) | Type::List(elem_type) => {
                         if idx_type != Type::Int {
                             return Err(format!(
@@ -761,7 +775,13 @@ impl TypeChecker {
                 let idx_type = self.check_expression(index)?;
                 let val_type = self.check_expression(value)?;
 
-                match &obj_type {
+                // Handle Optional types by unwrapping
+                let base_type = match &obj_type {
+                    Type::Optional(inner) => inner.as_ref(),
+                    other => other,
+                };
+
+                match base_type {
                     Type::Array(elem_type, _) | Type::List(elem_type) => {
                         if idx_type != Type::Int {
                             return Err(format!("Array/List index must be int, got {}", idx_type));
@@ -981,14 +1001,25 @@ impl TypeChecker {
 
     fn types_compatible(&self, expected: &Type, actual: &Type) -> bool {
         match (expected, actual) {
+            // Float accepts Int
             (Type::Float, Type::Int) => true,
+            // Array compatibility
             (Type::Array(e1, s1), Type::Array(e2, s2)) => {
                 s1 == s2 && self.types_compatible(e1, e2)
             }
+            // List compatibility
             (Type::List(e1), Type::List(e2)) => self.types_compatible(e1, e2),
+            // Dict compatibility
             (Type::Dict(k1, v1), Type::Dict(k2, v2)) => {
                 self.types_compatible(k1, k2) && self.types_compatible(v1, v2)
             }
+            // Optional type compatibility:
+            // - None (Void) can be assigned to any Optional[T]
+            (Type::Optional(_), Type::Void) => true,
+            // - T can be assigned to Optional[T]
+            (Type::Optional(inner), actual) => self.types_compatible(inner, actual),
+            // - Optional[T] == Optional[T] if inner types match
+            // (handled by default case since Type derives PartialEq)
             _ => expected == actual,
         }
     }

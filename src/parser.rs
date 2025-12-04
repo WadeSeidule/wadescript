@@ -502,7 +502,7 @@ impl Parser {
                 self.consume(Token::LeftBracket, "Expected '[' after 'list'");
                 let elem_type = Box::new(self.parse_type());
                 self.consume(Token::RightBracket, "Expected ']' after list element type");
-                return Type::List(elem_type);
+                Type::List(elem_type)
             }
             Token::DictType => {
                 self.advance();
@@ -511,7 +511,15 @@ impl Parser {
                 self.consume(Token::Comma, "Expected ',' after dict key type");
                 let val_type = Box::new(self.parse_type());
                 self.consume(Token::RightBracket, "Expected ']' after dict value type");
-                return Type::Dict(key_type, val_type);
+                Type::Dict(key_type, val_type)
+            }
+            Token::Optional => {
+                // Optional[T] syntax
+                self.advance();
+                self.consume(Token::LeftBracket, "Expected '[' after 'Optional'");
+                let inner_type = Box::new(self.parse_type());
+                self.consume(Token::RightBracket, "Expected ']' after Optional inner type");
+                return Type::Optional(inner_type);
             }
             Token::Identifier(name) => {
                 let name = name.clone();
@@ -531,6 +539,11 @@ impl Parser {
             } else {
                 panic!("Expected integer literal for array size");
             }
+        }
+
+        // Check for nullable type suffix: str?
+        if self.match_token(&[Token::Question]) {
+            return Type::Optional(Box::new(base_type));
         }
 
         base_type

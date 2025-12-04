@@ -4,30 +4,33 @@ def main() -> int {
     # Test ++ operator
     x: int = 5
     x++
-    print_int(x)  # Should print 6
+    assert x == 6
     x++
-    print_int(x)  # Should print 7
+    assert x == 7
 
     # Test -- operator
     y: int = 10
     y--
-    print_int(y)  # Should print 9
+    assert y == 9
     y--
-    print_int(y)  # Should print 8
+    assert y == 8
 
-    # Test in a loop
+    # Test in a while loop
     count: int = 0
     while count < 5 {
-        print_int(count)
         count++
     }
+    assert count == 5
 
-    # Test with for loop using --
+    # Test decrement in while loop
     z: int = 3
+    sum: int = 0
     while z > 0 {
-        print_int(z)
+        sum = sum + z
         z--
     }
+    assert sum == 6  # 3 + 2 + 1 = 6
+    assert z == 0
 
     return 0
 }

@@ -21,15 +21,16 @@ def main() -> int {
     # Each of these functions uses move semantics
     # No unnecessary retain/release pairs
     list1: list[int] = create_list()
-    print_int(list1.get(0))
-    print_int(list1.length)
+    assert list1.get(0) == 1
+    assert list1.get(4) == 5
+    assert list1.length == 5
 
     dict1: dict[str, int] = create_dict()
-    print_int(dict1["count"])
+    assert dict1["count"] == 100
 
     list2: list[int] = chain_returns()
-    print_int(list2.get(4))
+    assert list2.get(0) == 1
+    assert list2.get(4) == 5
 
-    print_str("Move optimization test passed")
     return 0
 }

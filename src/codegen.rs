@@ -119,6 +119,22 @@ impl<'ctx> CodeGen<'ctx> {
                     .ptr_type(AddressSpace::default())
                     .as_basic_type_enum()
             }
+            Type::Optional(inner_type) => {
+                // Optional types are represented as pointers that can be null
+                // For primitive types, we box them; for pointer types, they're already pointers
+                match inner_type.as_ref() {
+                    Type::Int | Type::Float | Type::Bool => {
+                        // For primitive types, Optional wraps in a pointer (can be null)
+                        self.context
+                            .ptr_type(AddressSpace::default())
+                            .as_basic_type_enum()
+                    }
+                    _ => {
+                        // For pointer types (str, list, etc.), they're already pointers
+                        self.get_llvm_type(inner_type)
+                    }
+                }
+            }
             Type::Exception => {
                 // Exception object is a pointer to a struct
                 self.context
@@ -1701,7 +1717,16 @@ impl<'ctx> CodeGen<'ctx> {
 
                 // Evaluate condition
                 let cond_value = self.compile_expression(condition)?;
-                let cond_bool = cond_value.into_int_value();
+                let cond_int = cond_value.into_int_value();
+
+                // Convert to i1 boolean by comparing against zero
+                // This handles i64, i32, and i1 values correctly
+                let cond_bool = self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    cond_int,
+                    cond_int.get_type().const_zero(),
+                    "assert_cond"
+                ).unwrap();
 
                 // Create basic blocks
                 let fail_block = self.context.append_basic_block(function, "assert_fail");

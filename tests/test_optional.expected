@@ -1,0 +1,11 @@
+=== Testing Optional Types ===
+str? with None: OK
+Optional[str] with None: OK
+str? with value: OK
+int? with None: OK
+int? with value: OK
+Optional[int] with None: OK
+Optional[int] with value: OK
+list[int]? with None: OK
+list[int]? with value: OK
+=== All Optional Tests Passed ===

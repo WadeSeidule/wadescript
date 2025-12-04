@@ -75,6 +75,7 @@ pub enum Token {
     StrType,
     ListType,
     DictType,
+    Optional,   // Optional[T] syntax for nullable types
 
     // Operators
     Plus,
@@ -110,6 +111,7 @@ pub enum Token {
     Semicolon,
     Arrow,
     Dot,
+    Question,   // ? for nullable type suffix (str?)
 
     // Special
     Newline,
@@ -318,6 +320,7 @@ impl Lexer {
             "str" => Token::StrType,
             "list" => Token::ListType,
             "dict" => Token::DictType,
+            "Optional" => Token::Optional,
             _ => Token::Identifier(ident),
         }
     }
@@ -506,6 +509,10 @@ impl Lexer {
                 Some('.') => {
                     self.advance();
                     return self.make_token(Token::Dot, location);
+                }
+                Some('?') => {
+                    self.advance();
+                    return self.make_token(Token::Question, location);
                 }
                 Some(ch) => {
                     panic!("Unexpected character: {}", ch);

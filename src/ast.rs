@@ -10,6 +10,7 @@ pub enum Type {
     Array(Box<Type>, usize),        // Fixed-size array: int[5]
     List(Box<Type>),                // Dynamic list: list[int]
     Dict(Box<Type>, Box<Type>),     // Dictionary: dict[str, int]
+    Optional(Box<Type>),            // Nullable type: str? or Optional[str]
     Exception,                      // Exception object type
     Custom(String),
 }
@@ -25,6 +26,7 @@ impl fmt::Display for Type {
             Type::Array(elem_type, size) => write!(f, "{}[{}]", elem_type, size),
             Type::List(elem_type) => write!(f, "list[{}]", elem_type),
             Type::Dict(key_type, val_type) => write!(f, "dict[{}, {}]", key_type, val_type),
+            Type::Optional(inner_type) => write!(f, "{}?", inner_type),
             Type::Exception => write!(f, "Exception"),
             Type::Custom(name) => write!(f, "{}", name),
         }

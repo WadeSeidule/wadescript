@@ -111,67 +111,57 @@ mod tests {
 
     #[test]
     fn test_rc_alloc_and_free() {
-        unsafe {
-            let ptr = rc_alloc(100);
-            assert!(!ptr.is_null());
-            assert_eq!(rc_get_count(ptr), 1);
-            rc_release(ptr);
-        }
+        let ptr = rc_alloc(100);
+        assert!(!ptr.is_null());
+        assert_eq!(rc_get_count(ptr), 1);
+        rc_release(ptr);
     }
 
     #[test]
     fn test_rc_retain_release() {
-        unsafe {
-            let ptr = rc_alloc(100);
-            assert_eq!(rc_get_count(ptr), 1);
+        let ptr = rc_alloc(100);
+        assert_eq!(rc_get_count(ptr), 1);
 
-            rc_retain(ptr);
-            assert_eq!(rc_get_count(ptr), 2);
+        rc_retain(ptr);
+        assert_eq!(rc_get_count(ptr), 2);
 
-            rc_retain(ptr);
-            assert_eq!(rc_get_count(ptr), 3);
+        rc_retain(ptr);
+        assert_eq!(rc_get_count(ptr), 3);
 
-            rc_release(ptr);
-            assert_eq!(rc_get_count(ptr), 2);
+        rc_release(ptr);
+        assert_eq!(rc_get_count(ptr), 2);
 
-            rc_release(ptr);
-            assert_eq!(rc_get_count(ptr), 1);
+        rc_release(ptr);
+        assert_eq!(rc_get_count(ptr), 1);
 
-            rc_release(ptr);
-            // Memory freed, can't check count
-        }
+        rc_release(ptr);
+        // Memory freed, can't check count
     }
 
     #[test]
     fn test_rc_null_safe() {
-        unsafe {
-            rc_retain(std::ptr::null_mut());
-            rc_release(std::ptr::null_mut());
-            assert_eq!(rc_get_count(std::ptr::null_mut()), 0);
-        }
+        rc_retain(std::ptr::null_mut());
+        rc_release(std::ptr::null_mut());
+        assert_eq!(rc_get_count(std::ptr::null_mut()), 0);
     }
 
     #[test]
     fn test_rc_is_valid() {
-        unsafe {
-            let ptr = rc_alloc(100);
-            assert_eq!(rc_is_valid(ptr), 1);
-            assert_eq!(rc_is_valid(std::ptr::null_mut()), 0);
-            rc_release(ptr);
-        }
+        let ptr = rc_alloc(100);
+        assert_eq!(rc_is_valid(ptr), 1);
+        assert_eq!(rc_is_valid(std::ptr::null_mut()), 0);
+        rc_release(ptr);
     }
 
     #[test]
     fn test_rc_zero_size_alloc() {
-        unsafe {
-            // Zero size should return null
-            let ptr = rc_alloc(0);
-            assert!(ptr.is_null());
+        // Zero size should return null
+        let ptr = rc_alloc(0);
+        assert!(ptr.is_null());
 
-            // Negative size should return null
-            let ptr2 = rc_alloc(-10);
-            assert!(ptr2.is_null());
-        }
+        // Negative size should return null
+        let ptr2 = rc_alloc(-10);
+        assert!(ptr2.is_null());
     }
 
     #[test]
@@ -195,89 +185,83 @@ mod tests {
 
     #[test]
     fn test_rc_multiple_objects() {
-        unsafe {
-            // Create multiple RC objects simultaneously
-            let ptr1 = rc_alloc(50);
-            let ptr2 = rc_alloc(100);
-            let ptr3 = rc_alloc(150);
+        // Create multiple RC objects simultaneously
+        let ptr1 = rc_alloc(50);
+        let ptr2 = rc_alloc(100);
+        let ptr3 = rc_alloc(150);
 
-            assert!(!ptr1.is_null());
-            assert!(!ptr2.is_null());
-            assert!(!ptr3.is_null());
+        assert!(!ptr1.is_null());
+        assert!(!ptr2.is_null());
+        assert!(!ptr3.is_null());
 
-            // Each should have independent ref count
-            assert_eq!(rc_get_count(ptr1), 1);
-            assert_eq!(rc_get_count(ptr2), 1);
-            assert_eq!(rc_get_count(ptr3), 1);
+        // Each should have independent ref count
+        assert_eq!(rc_get_count(ptr1), 1);
+        assert_eq!(rc_get_count(ptr2), 1);
+        assert_eq!(rc_get_count(ptr3), 1);
 
-            // Retain one multiple times
-            rc_retain(ptr2);
-            rc_retain(ptr2);
-            assert_eq!(rc_get_count(ptr1), 1);
-            assert_eq!(rc_get_count(ptr2), 3);
-            assert_eq!(rc_get_count(ptr3), 1);
+        // Retain one multiple times
+        rc_retain(ptr2);
+        rc_retain(ptr2);
+        assert_eq!(rc_get_count(ptr1), 1);
+        assert_eq!(rc_get_count(ptr2), 3);
+        assert_eq!(rc_get_count(ptr3), 1);
 
-            // Release in different order
-            rc_release(ptr1);
-            rc_release(ptr2);
-            assert_eq!(rc_get_count(ptr2), 2);
-            rc_release(ptr3);
-            rc_release(ptr2);
-            assert_eq!(rc_get_count(ptr2), 1);
-            rc_release(ptr2);
-        }
+        // Release in different order
+        rc_release(ptr1);
+        rc_release(ptr2);
+        assert_eq!(rc_get_count(ptr2), 2);
+        rc_release(ptr3);
+        rc_release(ptr2);
+        assert_eq!(rc_get_count(ptr2), 1);
+        rc_release(ptr2);
     }
 
 
     #[test]
     fn test_rc_valid_range() {
-        unsafe {
-            let ptr = rc_alloc(100);
+        let ptr = rc_alloc(100);
 
-            // Normal ref count should be valid
-            assert_eq!(rc_is_valid(ptr), 1);
+        // Normal ref count should be valid
+        assert_eq!(rc_is_valid(ptr), 1);
 
-            // Retain many times - should still be valid
-            for _ in 0..100 {
-                rc_retain(ptr);
-            }
-            assert_eq!(rc_get_count(ptr), 101);
-            assert_eq!(rc_is_valid(ptr), 1);
+        // Retain many times - should still be valid
+        for _ in 0..100 {
+            rc_retain(ptr);
+        }
+        assert_eq!(rc_get_count(ptr), 101);
+        assert_eq!(rc_is_valid(ptr), 1);
 
-            // Release back down
-            for _ in 0..100 {
-                rc_release(ptr);
-            }
-            assert_eq!(rc_get_count(ptr), 1);
-
+        // Release back down
+        for _ in 0..100 {
             rc_release(ptr);
         }
+        assert_eq!(rc_get_count(ptr), 1);
+
+        rc_release(ptr);
     }
 
     #[test]
     fn test_rc_get_count_edge_cases() {
-        unsafe {
-            // Null pointer
-            assert_eq!(rc_get_count(std::ptr::null_mut()), 0);
+        // Null pointer
+        assert_eq!(rc_get_count(std::ptr::null_mut()), 0);
 
-            // Fresh allocation
-            let ptr = rc_alloc(50);
-            assert_eq!(rc_get_count(ptr), 1);
+        // Fresh allocation
+        let ptr = rc_alloc(50);
+        assert_eq!(rc_get_count(ptr), 1);
 
-            // After retains
-            for i in 2..=10 {
-                rc_retain(ptr);
-                assert_eq!(rc_get_count(ptr), i);
-            }
-
-            // After releases
-            for i in (1..10).rev() {
-                rc_release(ptr);
-                assert_eq!(rc_get_count(ptr), i);
-            }
-
-            rc_release(ptr);
+        // After retains
+        for i in 2..=10 {
+            rc_retain(ptr);
+            assert_eq!(rc_get_count(ptr), i);
         }
+
+        // After releases
+        for i in (1..10).rev() {
+            rc_release(ptr);
+            assert_eq!(rc_get_count(ptr), i);
+        }
+
+        rc_release(ptr);
     }
 
     #[test]

@@ -118,7 +118,7 @@ pub extern "C" fn exception_matches(exc: *const Exception, exception_type: *cons
 #[no_mangle]
 pub extern "C" fn exception_push_handler(jmp_buf: *mut JmpBuf) {
     unsafe {
-        EXCEPTION_HANDLERS.push(jmp_buf);
+        (*std::ptr::addr_of_mut!(EXCEPTION_HANDLERS)).push(jmp_buf);
     }
 }
 
@@ -126,7 +126,7 @@ pub extern "C" fn exception_push_handler(jmp_buf: *mut JmpBuf) {
 #[no_mangle]
 pub extern "C" fn exception_pop_handler() {
     unsafe {
-        EXCEPTION_HANDLERS.pop();
+        (*std::ptr::addr_of_mut!(EXCEPTION_HANDLERS)).pop();
     }
 }
 
@@ -144,7 +144,7 @@ pub extern "C" fn exception_raise(
         exception_set_current(exc);
 
         // Try to longjmp to nearest exception handler
-        if let Some(jmp_buf) = EXCEPTION_HANDLERS.pop() {
+        if let Some(jmp_buf) = (*std::ptr::addr_of_mut!(EXCEPTION_HANDLERS)).pop() {
             // Jump back to the try block with value 1 (indicating exception)
             longjmp(jmp_buf, 1);
         }

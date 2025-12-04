@@ -18,8 +18,10 @@ use crate::typechecker::TypeChecker;
 /// Persistent variable in REPL
 struct ReplVariable {
     ws_type: Type,
-    ptr: *mut u8,  // Pointer to allocated memory
-    size: usize,   // Size of allocation
+    #[allow(dead_code)]
+    ptr: *mut u8,  // Pointer to allocated memory (kept for future cleanup)
+    #[allow(dead_code)]
+    size: usize,   // Size of allocation (kept for future cleanup)
 }
 
 /// User-defined function info for forward declarations

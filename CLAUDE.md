@@ -1,5 +1,13 @@
 # WadeScript - AI Assistant Guide
 
+## Development Guide for AI Assistant
+- use ./ws util to run/build wadescript
+  - wadescript binarys should have the .o extension
+- when adding features always add tests to both rust code and wadescript/tests
+  - When tests fail always fix the underlying bug. Do not rewrite test to get around the bug.
+- when adding or changing any functionality document changes in docs/ dir
+- After any implementation try and see if there are ways to optimize. Do not go with an unoptimized solution unless explicitly told to do so.
+
 ## Documentation Location
 
 **All detailed documentation is in the `docs/` directory.**

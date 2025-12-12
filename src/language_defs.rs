@@ -352,63 +352,33 @@ pub fn get_stdlib_modules() -> Vec<StdLibModule> {
             functions: vec![
                 StdLibFunction {
                     name: "get",
-                    signature: "(url: str) -> HttpResponse",
-                    description: "Perform a GET request",
-                },
-                StdLibFunction {
-                    name: "get_with_headers",
-                    signature: "(url: str, headers: str) -> HttpResponse",
-                    description: "GET request with custom headers",
+                    signature: "(url: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a GET request with optional headers dict",
                 },
                 StdLibFunction {
                     name: "post",
-                    signature: "(url: str, body: str) -> HttpResponse",
-                    description: "Perform a POST request",
-                },
-                StdLibFunction {
-                    name: "post_with_headers",
-                    signature: "(url: str, body: str, headers: str) -> HttpResponse",
-                    description: "POST request with custom headers",
+                    signature: "(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a POST request with optional headers dict",
                 },
                 StdLibFunction {
                     name: "put",
-                    signature: "(url: str, body: str) -> HttpResponse",
-                    description: "Perform a PUT request",
-                },
-                StdLibFunction {
-                    name: "put_with_headers",
-                    signature: "(url: str, body: str, headers: str) -> HttpResponse",
-                    description: "PUT request with custom headers",
+                    signature: "(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a PUT request with optional headers dict",
                 },
                 StdLibFunction {
                     name: "delete",
-                    signature: "(url: str) -> HttpResponse",
-                    description: "Perform a DELETE request",
-                },
-                StdLibFunction {
-                    name: "delete_with_headers",
-                    signature: "(url: str, headers: str) -> HttpResponse",
-                    description: "DELETE request with custom headers",
+                    signature: "(url: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a DELETE request with optional headers dict",
                 },
                 StdLibFunction {
                     name: "patch",
-                    signature: "(url: str, body: str) -> HttpResponse",
-                    description: "Perform a PATCH request",
-                },
-                StdLibFunction {
-                    name: "patch_with_headers",
-                    signature: "(url: str, body: str, headers: str) -> HttpResponse",
-                    description: "PATCH request with custom headers",
+                    signature: "(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a PATCH request with optional headers dict",
                 },
                 StdLibFunction {
                     name: "head",
-                    signature: "(url: str) -> HttpResponse",
-                    description: "Perform a HEAD request",
-                },
-                StdLibFunction {
-                    name: "head_with_headers",
-                    signature: "(url: str, headers: str) -> HttpResponse",
-                    description: "HEAD request with custom headers",
+                    signature: "(url: str, headers: dict[str, str] = {}) -> HttpResponse",
+                    description: "Perform a HEAD request with optional headers dict",
                 },
             ],
             classes: vec![
@@ -501,6 +471,12 @@ mod tests {
         assert!(!http.functions.is_empty());
         assert!(http.functions.iter().any(|f| f.name == "get"));
         assert!(http.functions.iter().any(|f| f.name == "post"));
+        assert!(http.functions.iter().any(|f| f.name == "put"));
+        assert!(http.functions.iter().any(|f| f.name == "delete"));
+        assert!(http.functions.iter().any(|f| f.name == "patch"));
+        assert!(http.functions.iter().any(|f| f.name == "head"));
+        // Verify no _with_headers variants (simplified API)
+        assert!(!http.functions.iter().any(|f| f.name.contains("_with_headers")));
         assert!(!http.classes.is_empty());
         assert!(http.classes.iter().any(|c| c.name == "HttpResponse"));
     }

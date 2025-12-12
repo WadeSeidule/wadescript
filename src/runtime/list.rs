@@ -4,9 +4,9 @@ use std::ffi::CString;
 /// List structure: { ptr data, i64 length, i64 capacity }
 #[repr(C)]
 pub struct List {
-    data: *mut i64,
-    length: i64,
-    capacity: i64,
+    pub data: *mut i64,
+    pub length: i64,
+    pub capacity: i64,
 }
 
 // Import the runtime_error function

@@ -46,89 +46,120 @@ class HttpResponse {
 
 ## Functions
 
+All HTTP functions accept an optional `headers` parameter as a dictionary (default: empty dict `{}`).
+
 ### GET Requests
 
 ```wadescript
 # Simple GET request
-response: HttpResponse = http.get(url)
+response: HttpResponse = http.get("https://api.example.com/users")
 
 # GET with custom headers
-response: HttpResponse = http.get_with_headers(url, headers)
+headers: dict[str, str] = {"Authorization": "Bearer token"}
+response: HttpResponse = http.get("https://api.example.com/users", headers=headers)
 ```
 
 ### POST Requests
 
 ```wadescript
-# POST with body
-response: HttpResponse = http.post(url, body)
+# POST with body (no custom headers)
+response: HttpResponse = http.post("https://api.example.com/users", body)
 
 # POST with body and custom headers
-response: HttpResponse = http.post_with_headers(url, body, headers)
+headers: dict[str, str] = {"Content-Type": "application/json"}
+response: HttpResponse = http.post("https://api.example.com/users", body, headers=headers)
 ```
 
 ### PUT Requests
 
 ```wadescript
 # PUT with body
-response: HttpResponse = http.put(url, body)
+response: HttpResponse = http.put("https://api.example.com/users/1", body)
 
 # PUT with body and custom headers
-response: HttpResponse = http.put_with_headers(url, body, headers)
+headers: dict[str, str] = {"Content-Type": "application/json"}
+response: HttpResponse = http.put("https://api.example.com/users/1", body, headers=headers)
 ```
 
 ### DELETE Requests
 
 ```wadescript
 # Simple DELETE
-response: HttpResponse = http.delete(url)
+response: HttpResponse = http.delete("https://api.example.com/users/1")
 
 # DELETE with custom headers
-response: HttpResponse = http.delete_with_headers(url, headers)
+headers: dict[str, str] = {"Authorization": "Bearer token"}
+response: HttpResponse = http.delete("https://api.example.com/users/1", headers=headers)
 ```
 
 ### PATCH Requests
 
 ```wadescript
 # PATCH with body
-response: HttpResponse = http.patch(url, body)
+response: HttpResponse = http.patch("https://api.example.com/users/1", body)
 
 # PATCH with body and custom headers
-response: HttpResponse = http.patch_with_headers(url, body, headers)
+headers: dict[str, str] = {"Content-Type": "application/json"}
+response: HttpResponse = http.patch("https://api.example.com/users/1", body, headers=headers)
 ```
 
 ### HEAD Requests
 
 ```wadescript
 # HEAD request (returns headers only, no body)
-response: HttpResponse = http.head(url)
+response: HttpResponse = http.head("https://api.example.com/users")
 
 # HEAD with custom headers
-response: HttpResponse = http.head_with_headers(url, headers)
+headers: dict[str, str] = {"Authorization": "Bearer token"}
+response: HttpResponse = http.head("https://api.example.com/users", headers=headers)
 ```
+
+## Function Signatures
+
+| Function | Signature |
+|----------|-----------|
+| `get` | `(url: str, headers: dict[str, str] = {}) -> HttpResponse` |
+| `post` | `(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse` |
+| `put` | `(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse` |
+| `delete` | `(url: str, headers: dict[str, str] = {}) -> HttpResponse` |
+| `patch` | `(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse` |
+| `head` | `(url: str, headers: dict[str, str] = {}) -> HttpResponse` |
 
 ## Custom Headers
 
-Headers are passed as a newline-separated string of "Key: Value" pairs:
+Headers are passed as a dictionary where keys are header names and values are header values:
 
 ```wadescript
-headers: str = "Content-Type: application/json\nAuthorization: Bearer token123"
-response: HttpResponse = http.post_with_headers(url, body, headers)
+# Single header
+headers: dict[str, str] = {"Content-Type": "application/json"}
+
+# Multiple headers
+headers: dict[str, str] = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer token123",
+    "Accept": "application/json"
+}
+
+response: HttpResponse = http.post(url, body, headers=headers)
 ```
 
 ### Common Headers
 
 ```wadescript
 # JSON content
-headers: str = "Content-Type: application/json"
+headers: dict[str, str] = {"Content-Type": "application/json"}
 
 # Form data
-headers: str = "Content-Type: application/x-www-form-urlencoded"
+headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
 
 # Authorization
-headers: str = "Authorization: Bearer your-token-here"
+headers: dict[str, str] = {"Authorization": "Bearer your-token-here"}
 
 # Multiple headers
-headers: str = "Content-Type: application/json\nAuthorization: Bearer token"
+headers: dict[str, str] = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer token"
+}
 ```
 
 ## Examples
@@ -160,9 +191,9 @@ import "http"
 def main() -> int {
     url: str = "https://api.example.com/users"
     body: str = "{\"name\": \"Alice\", \"email\": \"alice@example.com\"}"
-    headers: str = "Content-Type: application/json"
+    headers: dict[str, str] = {"Content-Type": "application/json"}
 
-    response: HttpResponse = http.post_with_headers(url, body, headers)
+    response: HttpResponse = http.post(url, body, headers=headers)
 
     if response.status == 201 {
         print_str("User created successfully!")
@@ -241,6 +272,7 @@ if response.status == -1 {
 - HTTPS is fully supported with TLS
 - HTTP redirects are followed automatically
 - Response bodies are read as UTF-8 strings
+- Headers are passed as a dictionary for better UX
 
 ## Runtime Functions (Low-Level)
 
@@ -249,7 +281,7 @@ These functions are used internally by `std/http.ws`. You typically won't need t
 | Function | Description |
 |----------|-------------|
 | `http_get(url)` | Perform GET request, return handle |
-| `http_get_with_headers(url, headers)` | GET with custom headers |
+| `http_get_with_headers(url, headers)` | GET with custom headers (string format) |
 | `http_post(url, body, headers)` | Perform POST request |
 | `http_put(url, body, headers)` | Perform PUT request |
 | `http_delete(url, headers)` | Perform DELETE request |

@@ -1087,28 +1087,15 @@ impl<'ctx> CodeGen<'ctx> {
         let dict_has_fn = self.module.add_function("dict_has", dict_has_type, None);
         self.functions.insert("dict_has".to_string(), dict_has_fn);
 
-        // dict_length(dict_ptr) -> i64
+        // dict_length(dict_ptr) -> i64 (runtime function)
         let dict_length_type = i64_type.fn_type(&[ptr_type.into()], false);
         let dict_length_fn = self.module.add_function("dict_length", dict_length_type, None);
-        let entry = self.context.append_basic_block(dict_length_fn, "entry");
-        self.builder.position_at_end(entry);
-
-        let dict_arg = dict_length_fn.get_nth_param(0).unwrap().into_pointer_value();
-
-        // Load length from offset 8
-        let dict_as_ptr = self.builder.build_pointer_cast(dict_arg, ptr_type, "").unwrap();
-        let length_ptr = unsafe {
-            self.builder.build_gep(
-                ptr_type,
-                dict_as_ptr,
-                &[i64_type.const_int(1, false)],
-                "length_ptr"
-            ).unwrap()
-        };
-        let length = self.builder.build_load(i64_type, length_ptr, "length").unwrap();
-
-        self.builder.build_return(Some(&length)).unwrap();
         self.functions.insert("dict_length".to_string(), dict_length_fn);
+
+        // dict_get_keys(dict_ptr) -> ptr (returns list of keys)
+        let dict_get_keys_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let dict_get_keys_fn = self.module.add_function("dict_get_keys", dict_get_keys_type, None);
+        self.functions.insert("dict_get_keys".to_string(), dict_get_keys_fn);
     }
 
     fn declare_string_functions(&mut self) {
@@ -1832,24 +1819,54 @@ impl<'ctx> CodeGen<'ctx> {
                 let iterable_alloca = self.builder.build_alloca(iterable_type, "_iterable").unwrap();
                 self.builder.build_store(iterable_alloca, iterable_val).unwrap();
 
-                // Determine if iterating over a string or a list
-                let is_string = if let Expression::Variable(var_name) = iterable {
+                // Determine the type of iterable: string, dict, or list
+                #[derive(PartialEq)]
+                enum IterableKind { String, Dict, List }
+
+                let iterable_kind = if let Expression::Variable(var_name) = iterable {
                     if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
-                        ast_type == &Type::Str
+                        match ast_type {
+                            Type::Str => IterableKind::String,
+                            Type::Dict(_, _) => IterableKind::Dict,
+                            _ => IterableKind::List,
+                        }
                     } else {
-                        false
+                        IterableKind::List
                     }
                 } else if matches!(iterable, Expression::StringLiteral(_)) {
-                    true
+                    IterableKind::String
+                } else if matches!(iterable, Expression::DictLiteral { .. }) {
+                    IterableKind::Dict
                 } else {
-                    false
+                    IterableKind::List
+                };
+
+                // For dicts, convert to list of keys first
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let (actual_iterable_alloca, actual_iterable_type) = if iterable_kind == IterableKind::Dict {
+                    // Call dict_get_keys to get list of keys
+                    let iterable_loaded = self.builder.build_load(iterable_type, iterable_alloca, "").unwrap();
+                    let dict_get_keys_fn = self.functions.get("dict_get_keys").unwrap();
+                    let keys_list = self
+                        .builder
+                        .build_call(*dict_get_keys_fn, &[iterable_loaded.into()], "keys_list")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    let keys_alloca = self.builder.build_alloca(ptr_type, "_keys").unwrap();
+                    self.builder.build_store(keys_alloca, keys_list).unwrap();
+                    (keys_alloca, ptr_type.as_basic_type_enum())
+                } else {
+                    (iterable_alloca, iterable_type)
                 };
 
                 // Get length using appropriate function
-                let iterable_loaded = self.builder.build_load(iterable_type, iterable_alloca, "").unwrap();
-                let length_fn = if is_string {
+                let iterable_loaded = self.builder.build_load(actual_iterable_type, actual_iterable_alloca, "").unwrap();
+                let length_fn = if iterable_kind == IterableKind::String {
                     self.functions.get("str_length").unwrap()
                 } else {
+                    // Both lists and dict keys (which are now a list) use list_length
                     self.functions.get("list_length").unwrap()
                 };
                 let length = self
@@ -1890,10 +1907,10 @@ impl<'ctx> CodeGen<'ctx> {
                 self.builder.position_at_end(body_block);
 
                 // Load item: item = iterable[idx]
-                let iterable_loaded = self.builder.build_load(iterable_type, iterable_alloca, "").unwrap();
+                let iterable_loaded = self.builder.build_load(actual_iterable_type, actual_iterable_alloca, "").unwrap();
                 let idx_loaded = self.builder.build_load(i64_type, idx_alloca, "").unwrap();
 
-                let (item_val, item_ast_type) = if is_string {
+                let (item_val, item_ast_type) = if iterable_kind == IterableKind::String {
                     // For strings, use str_char_at
                     let str_char_at_fn = self.functions.get("str_char_at").unwrap();
                     let char_val = self
@@ -1904,6 +1921,23 @@ impl<'ctx> CodeGen<'ctx> {
                         .left()
                         .unwrap();
                     (char_val, Type::Str)
+                } else if iterable_kind == IterableKind::Dict {
+                    // For dicts, we iterate over keys list - get string pointer from list
+                    let list_get_fn = self.functions.get("list_get_i64").unwrap();
+                    let key_ptr_as_i64 = self
+                        .builder
+                        .build_call(*list_get_fn, &[iterable_loaded.into(), idx_loaded.into()], "key_ptr")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    // Convert i64 back to pointer
+                    let key_ptr = self.builder.build_int_to_ptr(
+                        key_ptr_as_i64.into_int_value(),
+                        ptr_type,
+                        "key"
+                    ).unwrap();
+                    (key_ptr.as_basic_value_enum(), Type::Str)
                 } else {
                     // For lists, use list_get_i64
                     let list_get_fn = self.functions.get("list_get_i64").unwrap();

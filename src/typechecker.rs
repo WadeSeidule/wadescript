@@ -589,31 +589,98 @@ impl TypeChecker {
 
                             // Look up the function signature
                             if let Some((param_types, return_type)) = self.functions.get(member).cloned() {
-                                if args.len() != param_types.len() {
-                                    return Err(format!(
-                                        "Function '{}.{}' expects {} arguments, got {}",
-                                        module_name,
-                                        member,
-                                        param_types.len(),
-                                        args.len()
-                                    ));
-                                }
+                                // Check if we have full param info (for named args/defaults)
+                                if let Some(param_info) = self.function_params.get(member).cloned() {
+                                    // Track which parameters have been provided
+                                    let mut provided = vec![false; param_info.len()];
 
-                                for (i, arg) in args.iter().enumerate() {
-                                    let arg_type = self.check_expression(arg)?;
-                                    if !self.types_compatible(&param_types[i], &arg_type) {
+                                    // Process positional arguments
+                                    if args.len() > param_info.len() {
                                         return Err(format!(
-                                            "Argument {} of function '{}.{}': expected {}, got {}",
-                                            i + 1,
-                                            module_name,
-                                            member,
-                                            param_types[i],
-                                            arg_type
+                                            "Function '{}.{}' takes at most {} arguments, got {}",
+                                            module_name, member, param_info.len(), args.len()
                                         ));
                                     }
-                                }
 
-                                return Ok(return_type);
+                                    for (i, arg) in args.iter().enumerate() {
+                                        let arg_type = self.check_expression(arg)?;
+                                        if !self.types_compatible(&param_info[i].param_type, &arg_type) {
+                                            return Err(format!(
+                                                "Argument {} of function '{}.{}': expected {}, got {}",
+                                                i + 1, module_name, member, param_info[i].param_type, arg_type
+                                            ));
+                                        }
+                                        provided[i] = true;
+                                    }
+
+                                    // Process named arguments
+                                    for (name, value) in named_args {
+                                        let param_idx = param_info.iter().position(|p| &p.name == name);
+                                        match param_idx {
+                                            Some(idx) => {
+                                                if provided[idx] {
+                                                    return Err(format!(
+                                                        "Function '{}.{}': parameter '{}' specified multiple times",
+                                                        module_name, member, name
+                                                    ));
+                                                }
+                                                let arg_type = self.check_expression(value)?;
+                                                if !self.types_compatible(&param_info[idx].param_type, &arg_type) {
+                                                    return Err(format!(
+                                                        "Named argument '{}' of function '{}.{}': expected {}, got {}",
+                                                        name, module_name, member, param_info[idx].param_type, arg_type
+                                                    ));
+                                                }
+                                                provided[idx] = true;
+                                            }
+                                            None => {
+                                                return Err(format!(
+                                                    "Function '{}.{}' has no parameter named '{}'",
+                                                    module_name, member, name
+                                                ));
+                                            }
+                                        }
+                                    }
+
+                                    // Check all required parameters are provided
+                                    for (i, info) in param_info.iter().enumerate() {
+                                        if !provided[i] && !info.has_default {
+                                            return Err(format!(
+                                                "Function '{}.{}': missing required argument '{}'",
+                                                module_name, member, info.name
+                                            ));
+                                        }
+                                    }
+
+                                    return Ok(return_type);
+                                } else {
+                                    // Fallback: no param info, use simple validation
+                                    if args.len() != param_types.len() {
+                                        return Err(format!(
+                                            "Function '{}.{}' expects {} arguments, got {}",
+                                            module_name,
+                                            member,
+                                            param_types.len(),
+                                            args.len()
+                                        ));
+                                    }
+
+                                    for (i, arg) in args.iter().enumerate() {
+                                        let arg_type = self.check_expression(arg)?;
+                                        if !self.types_compatible(&param_types[i], &arg_type) {
+                                            return Err(format!(
+                                                "Argument {} of function '{}.{}': expected {}, got {}",
+                                                i + 1,
+                                                module_name,
+                                                member,
+                                                param_types[i],
+                                                arg_type
+                                            ));
+                                        }
+                                    }
+
+                                    return Ok(return_type);
+                                }
                             } else {
                                 return Err(format!("Undefined function '{}'", member));
                             }
@@ -980,31 +1047,69 @@ impl TypeChecker {
 
                         // Look up the function signature
                         if let Some((param_types, return_type)) = self.functions.get(method).cloned() {
-                            if args.len() != param_types.len() {
-                                return Err(format!(
-                                    "Function '{}.{}' expects {} arguments, got {}",
-                                    module_name,
-                                    method,
-                                    param_types.len(),
-                                    args.len()
-                                ));
-                            }
+                            // Check if we have full param info (for defaults)
+                            if let Some(param_info) = self.function_params.get(method).cloned() {
+                                // Track which parameters have been provided
+                                let mut provided = vec![false; param_info.len()];
 
-                            for (i, arg) in args.iter().enumerate() {
-                                let arg_type = self.check_expression(arg)?;
-                                if !self.types_compatible(&param_types[i], &arg_type) {
+                                // Process positional arguments
+                                if args.len() > param_info.len() {
                                     return Err(format!(
-                                        "Argument {} of function '{}.{}': expected {}, got {}",
-                                        i + 1,
-                                        module_name,
-                                        method,
-                                        param_types[i],
-                                        arg_type
+                                        "Function '{}.{}' takes at most {} arguments, got {}",
+                                        module_name, method, param_info.len(), args.len()
                                     ));
                                 }
-                            }
 
-                            return Ok(return_type);
+                                for (i, arg) in args.iter().enumerate() {
+                                    let arg_type = self.check_expression(arg)?;
+                                    if !self.types_compatible(&param_info[i].param_type, &arg_type) {
+                                        return Err(format!(
+                                            "Argument {} of function '{}.{}': expected {}, got {}",
+                                            i + 1, module_name, method, param_info[i].param_type, arg_type
+                                        ));
+                                    }
+                                    provided[i] = true;
+                                }
+
+                                // Check all required parameters are provided
+                                for (i, info) in param_info.iter().enumerate() {
+                                    if !provided[i] && !info.has_default {
+                                        return Err(format!(
+                                            "Function '{}.{}': missing required argument '{}'",
+                                            module_name, method, info.name
+                                        ));
+                                    }
+                                }
+
+                                return Ok(return_type);
+                            } else {
+                                // Fallback: no param info, use simple validation
+                                if args.len() != param_types.len() {
+                                    return Err(format!(
+                                        "Function '{}.{}' expects {} arguments, got {}",
+                                        module_name,
+                                        method,
+                                        param_types.len(),
+                                        args.len()
+                                    ));
+                                }
+
+                                for (i, arg) in args.iter().enumerate() {
+                                    let arg_type = self.check_expression(arg)?;
+                                    if !self.types_compatible(&param_types[i], &arg_type) {
+                                        return Err(format!(
+                                            "Argument {} of function '{}.{}': expected {}, got {}",
+                                            i + 1,
+                                            module_name,
+                                            method,
+                                            param_types[i],
+                                            arg_type
+                                        ));
+                                    }
+                                }
+
+                                return Ok(return_type);
+                            }
                         } else {
                             return Err(format!("Undefined function '{}'", method));
                         }

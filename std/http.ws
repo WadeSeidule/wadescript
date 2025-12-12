@@ -12,6 +12,10 @@
 #       }
 #       return 0
 #   }
+#
+# With custom headers:
+#   headers: dict[str, str] = {"Authorization": "Bearer token", "Content-Type": "application/json"}
+#   response: HttpResponse = http.get("https://api.example.com", headers=headers)
 
 # HTTP Response class containing status, body, and headers
 class HttpResponse {
@@ -20,20 +24,25 @@ class HttpResponse {
     headers: str
 }
 
-# Perform a GET request
-def get(url: str) -> HttpResponse {
-    handle: int = http_get(url)
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
+# Internal utility: format headers dict to "Key: Value\n" string
+def _format_headers(headers: dict[str, str]) -> str {
+    result: str = ""
+    for key in headers {
+        value: str = headers[key]
+        if result == "" {
+            result = f"{key}: {value}"
+        } else {
+            result = f"{result}\n{key}: {value}"
+        }
+    }
+    return result
 }
 
-# Perform a GET request with custom headers
-def get_with_headers(url: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_get_with_headers(url, custom_headers)
+# Perform a GET request
+# headers: optional dict of header name -> value pairs
+def get(url: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_get_with_headers(url, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)
@@ -43,19 +52,10 @@ def get_with_headers(url: str, custom_headers: str) -> HttpResponse {
 }
 
 # Perform a POST request
-def post(url: str, req_body: str) -> HttpResponse {
-    handle: int = http_post(url, req_body, "")
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
-}
-
-# Perform a POST request with custom headers
-def post_with_headers(url: str, req_body: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_post(url, req_body, custom_headers)
+# headers: optional dict of header name -> value pairs
+def post(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_post(url, body, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)
@@ -65,19 +65,10 @@ def post_with_headers(url: str, req_body: str, custom_headers: str) -> HttpRespo
 }
 
 # Perform a PUT request
-def put(url: str, req_body: str) -> HttpResponse {
-    handle: int = http_put(url, req_body, "")
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
-}
-
-# Perform a PUT request with custom headers
-def put_with_headers(url: str, req_body: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_put(url, req_body, custom_headers)
+# headers: optional dict of header name -> value pairs
+def put(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_put(url, body, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)
@@ -87,19 +78,10 @@ def put_with_headers(url: str, req_body: str, custom_headers: str) -> HttpRespon
 }
 
 # Perform a DELETE request
-def delete(url: str) -> HttpResponse {
-    handle: int = http_delete(url, "")
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
-}
-
-# Perform a DELETE request with custom headers
-def delete_with_headers(url: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_delete(url, custom_headers)
+# headers: optional dict of header name -> value pairs
+def delete(url: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_delete(url, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)
@@ -109,19 +91,10 @@ def delete_with_headers(url: str, custom_headers: str) -> HttpResponse {
 }
 
 # Perform a PATCH request
-def patch(url: str, req_body: str) -> HttpResponse {
-    handle: int = http_patch(url, req_body, "")
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
-}
-
-# Perform a PATCH request with custom headers
-def patch_with_headers(url: str, req_body: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_patch(url, req_body, custom_headers)
+# headers: optional dict of header name -> value pairs
+def patch(url: str, body: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_patch(url, body, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)
@@ -131,19 +104,10 @@ def patch_with_headers(url: str, req_body: str, custom_headers: str) -> HttpResp
 }
 
 # Perform a HEAD request (returns headers only, no body)
-def head(url: str) -> HttpResponse {
-    handle: int = http_head(url, "")
-    resp_status: int = http_response_status(handle)
-    resp_body: str = http_response_body(handle)
-    resp_headers: str = http_response_headers(handle)
-    http_response_free(handle)
-    response: HttpResponse = HttpResponse(resp_status, resp_body, resp_headers)
-    return response
-}
-
-# Perform a HEAD request with custom headers
-def head_with_headers(url: str, custom_headers: str) -> HttpResponse {
-    handle: int = http_head(url, custom_headers)
+# headers: optional dict of header name -> value pairs
+def head(url: str, headers: dict[str, str] = {}) -> HttpResponse {
+    header_str: str = _format_headers(headers)
+    handle: int = http_head(url, header_str)
     resp_status: int = http_response_status(handle)
     resp_body: str = http_response_body(handle)
     resp_headers: str = http_response_headers(handle)

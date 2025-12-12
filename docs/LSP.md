@@ -129,7 +129,7 @@ The LSP provides completions for all standard library modules:
 |--------|-----------|---------|
 | `io` | open, read, read_line, write, close, exists | - |
 | `cli` | get_args, argc, argv, parse_int, parse_bool, starts_with, str_eq | - |
-| `http` | get, post, put, delete, patch, head (+ _with_headers variants) | HttpResponse |
+| `http` | get, post, put, delete, patch, head | HttpResponse |
 
 Completions include full signatures and documentation. Example completions:
 - `io` (module)

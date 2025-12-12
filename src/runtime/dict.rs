@@ -260,6 +260,60 @@ pub extern "C" fn dict_has(dict: *const Dict, key: *const u8) -> i32 {
     }
 }
 
+/// Get the number of entries in the dictionary
+#[no_mangle]
+pub extern "C" fn dict_length(dict: *const Dict) -> i64 {
+    unsafe {
+        if dict.is_null() {
+            return 0;
+        }
+        (*dict).length
+    }
+}
+
+/// Get all keys from the dictionary as a list of strings
+/// Returns a pointer to a newly allocated list
+#[no_mangle]
+pub extern "C" fn dict_get_keys(dict: *const Dict) -> *mut super::list::List {
+    use super::list::{List, list_push_i64};
+    use std::alloc::{alloc_zeroed, Layout};
+
+    unsafe {
+        // Create a new list manually
+        let list_layout = Layout::new::<List>();
+        let keys_list = alloc_zeroed(list_layout) as *mut List;
+
+        if keys_list.is_null() {
+            std::process::exit(1);
+        }
+
+        // Initialize empty list with default capacity
+        let initial_capacity = 8i64;
+        let data_layout = Layout::array::<i64>(initial_capacity as usize).unwrap();
+        (*keys_list).data = alloc_zeroed(data_layout) as *mut i64;
+        (*keys_list).length = 0;
+        (*keys_list).capacity = initial_capacity;
+
+        if dict.is_null() {
+            return keys_list;
+        }
+
+        let dict_ref = &*dict;
+
+        // Iterate through all buckets and collect keys
+        for i in 0..dict_ref.capacity {
+            let mut entry = *dict_ref.buckets.offset(i as isize);
+            while !entry.is_null() {
+                // Store the key pointer as i64 (keys_list owns these pointers now)
+                list_push_i64(keys_list, (*entry).key as i64);
+                entry = (*entry).next;
+            }
+        }
+
+        keys_list
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

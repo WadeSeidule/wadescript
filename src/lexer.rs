@@ -4,11 +4,17 @@ use std::fmt;
 pub struct SourceLocation {
     pub line: usize,
     pub column: usize,
+    pub offset: usize,  // Byte offset from start of file
 }
 
 impl SourceLocation {
+    #[allow(dead_code)]
     pub fn new(line: usize, column: usize) -> Self {
-        SourceLocation { line, column }
+        SourceLocation { line, column, offset: 0 }
+    }
+
+    pub fn with_offset(line: usize, column: usize, offset: usize) -> Self {
+        SourceLocation { line, column, offset }
     }
 }
 
@@ -21,12 +27,23 @@ impl fmt::Display for SourceLocation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenWithLocation {
     pub token: Token,
-    pub location: SourceLocation,
+    pub start: SourceLocation,
+    pub end: SourceLocation,
 }
 
 impl TokenWithLocation {
     pub fn new(token: Token, location: SourceLocation) -> Self {
-        TokenWithLocation { token, location }
+        // Backward compatibility: use same location for start and end
+        TokenWithLocation { token, start: location, end: location }
+    }
+
+    pub fn with_span(token: Token, start: SourceLocation, end: SourceLocation) -> Self {
+        TokenWithLocation { token, start, end }
+    }
+
+    // Backward compatibility accessor
+    pub fn location(&self) -> SourceLocation {
+        self.start
     }
 }
 
@@ -127,7 +144,10 @@ impl fmt::Display for Token {
 
 pub struct Lexer {
     input: Vec<char>,
+    #[allow(dead_code)]
+    input_bytes: Vec<u8>,  // For accurate byte offset tracking (reserved for future use)
     position: usize,
+    byte_offset: usize,    // Current byte offset
     current_char: Option<char>,
     line: usize,
     column: usize,
@@ -135,11 +155,14 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(input: String) -> Self {
+        let input_bytes = input.as_bytes().to_vec();
         let chars: Vec<char> = input.chars().collect();
         let current_char = chars.get(0).copied();
         Lexer {
             input: chars,
+            input_bytes,
             position: 0,
+            byte_offset: 0,
             current_char,
             line: 1,
             column: 1,
@@ -147,19 +170,26 @@ impl Lexer {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        SourceLocation::new(self.line, self.column)
+        SourceLocation::with_offset(self.line, self.column, self.byte_offset)
     }
 
-    fn make_token(&self, token: Token, location: SourceLocation) -> TokenWithLocation {
-        TokenWithLocation::new(token, location)
+    fn make_token(&self, token: Token, start: SourceLocation) -> TokenWithLocation {
+        // End location is the current position (after consuming the token)
+        let end = self.current_location();
+        TokenWithLocation::with_span(token, start, end)
     }
 
     fn advance(&mut self) {
-        if let Some('\n') = self.current_char {
-            self.line += 1;
-            self.column = 1;
-        } else {
-            self.column += 1;
+        if let Some(ch) = self.current_char {
+            // Update byte offset by the UTF-8 length of current character
+            self.byte_offset += ch.len_utf8();
+
+            if ch == '\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
+            }
         }
         self.position += 1;
         self.current_char = self.input.get(self.position).copied();

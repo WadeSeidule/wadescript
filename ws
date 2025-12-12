@@ -37,6 +37,7 @@ usage() {
     echo "  ws build <file.ws> -o <name>    Compile with custom output name"
     echo "  ws test                         Run all tests in tests/ directory"
     echo "  ws repl                         Start interactive REPL"
+    echo "  ws lsp                          Start language server for IDE integration"
     echo ""
     echo "Examples:"
     echo "  ws build examples/hello.ws"
@@ -56,7 +57,7 @@ fi
 COMMAND="$1"
 
 # Handle commands that don't require a source file
-if [ "$COMMAND" = "test" ] || [ "$COMMAND" = "repl" ]; then
+if [ "$COMMAND" = "test" ] || [ "$COMMAND" = "repl" ] || [ "$COMMAND" = "lsp" ]; then
     # These commands are handled below without a source file
     true
 elif [ $# -lt 2 ]; then
@@ -64,7 +65,7 @@ elif [ $# -lt 2 ]; then
 fi
 
 # Set source file for commands that need it
-if [ "$COMMAND" != "test" ] && [ "$COMMAND" != "repl" ]; then
+if [ "$COMMAND" != "test" ] && [ "$COMMAND" != "repl" ] && [ "$COMMAND" != "lsp" ]; then
     SOURCE_FILE="$2"
 
     # Check if source file exists
@@ -142,6 +143,11 @@ case "$COMMAND" in
         # Start interactive REPL
         echo -e "${BLUE}Starting WadeScript REPL...${NC}"
         "$WADESCRIPT_BIN" repl
+        ;;
+
+    lsp)
+        # Start language server for IDE integration
+        "$WADESCRIPT_BIN" lsp
         ;;
 
     test)

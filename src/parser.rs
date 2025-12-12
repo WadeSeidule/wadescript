@@ -12,12 +12,17 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
+    /// Create a parser from pre-tokenized tokens (used by LSP)
+    pub fn new_from_tokens(tokens: Vec<TokenWithLocation>) -> Self {
+        Parser { tokens, current: 0 }
+    }
+
     fn peek(&self) -> &Token {
         &self.tokens[self.current].token
     }
 
     fn peek_location(&self) -> SourceLocation {
-        self.tokens[self.current].location
+        self.tokens[self.current].location()
     }
 
     fn advance(&mut self) -> Token {
@@ -452,7 +457,7 @@ impl Parser {
     }
 
     fn raise_statement(&mut self) -> Statement {
-        let line = self.tokens[self.current].location.line;
+        let line = self.tokens[self.current].location().line;
         self.consume(Token::Raise, "Expected 'raise'");
 
         // Parse exception type (required)
@@ -838,7 +843,7 @@ impl Parser {
 
         loop {
             if self.match_token(&[Token::LeftParen]) {
-                let line = self.tokens[self.current - 1].location.line; // Capture line of '('
+                let line = self.tokens[self.current - 1].location().line; // Capture line of '('
                 let mut args = Vec::new();
                 if !self.check(&Token::RightParen) {
                     loop {
@@ -855,7 +860,7 @@ impl Parser {
                     line,
                 };
             } else if self.match_token(&[Token::LeftBracket]) {
-                let line = self.tokens[self.current - 1].location.line;
+                let line = self.tokens[self.current - 1].location().line;
                 let index = self.expression();
                 self.consume(Token::RightBracket, "Expected ']' after index");
                 expr = Expression::Index {

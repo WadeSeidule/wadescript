@@ -23,6 +23,9 @@
 - **RC Implementation**: `docs/RC_IMPLEMENTATION.md` - Reference counting internals
 - **Benchmarks**: `docs/BENCHMARK_RESULTS.md` - Performance benchmarks and optimizations
 - **Test Summary**: `docs/TEST_SUITE_SUMMARY.md` - Test coverage overview
+- **CLI Module**: `docs/CLI.md` - Command-line argument parsing
+- **HTTP Module**: `docs/HTTP.md` - HTTP client for web requests
+- **Language Server**: `docs/LSP.md` - LSP implementation for IDE integration
 
 ## Project Overview
 
@@ -59,6 +62,9 @@ make test            # Run all tests
 make check           # Fast syntax check
 make fmt             # Format Rust code
 make examples        # Compile all examples
+
+# IDE Integration
+./ws lsp             # Start language server for IDE integration
 ```
 
 See `docs/BUILD.md` for complete build documentation.
@@ -74,6 +80,13 @@ wadescript/
 │   ├── ast.rs            # Abstract Syntax Tree
 │   ├── typechecker.rs    # Type checking
 │   ├── codegen.rs        # LLVM IR generation (includes RC optimizations)
+│   ├── lsp/              # Language Server Protocol implementation
+│   │   ├── mod.rs        # LSP module root
+│   │   ├── server.rs     # LSP server (tower-lsp)
+│   │   ├── analysis.rs   # Code analysis coordinator
+│   │   ├── document.rs   # Document state management
+│   │   ├── diagnostics.rs # Error to diagnostic conversion
+│   │   └── span.rs       # Span and position utilities
 │   └── runtime/          # Rust runtime library
 │       ├── lib.rs        # Error handling, call stack
 │       ├── list.rs       # Dynamic lists

@@ -2,6 +2,7 @@ mod ast;
 mod codegen;
 mod jit;
 mod lexer;
+mod lsp;
 mod parser;
 mod repl;
 mod runtime;
@@ -172,6 +173,7 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage: wadescript <input_file.ws> [--emit-llvm]");
         eprintln!("       wadescript repl");
+        eprintln!("       wadescript lsp");
         std::process::exit(1);
     }
 
@@ -184,6 +186,16 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+
+    // Check for LSP command
+    if args[1] == "lsp" {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(lsp::run_server());
         return;
     }
 

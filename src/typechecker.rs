@@ -45,6 +45,20 @@ impl TypeChecker {
         functions.insert("cli_str_eq".to_string(), (vec![Type::Str, Type::Str], Type::Int));
         functions.insert("cli_after_prefix".to_string(), (vec![Type::Str, Type::Str], Type::Str));
 
+        // Register HTTP functions (used by std/http.ws)
+        functions.insert("http_get".to_string(), (vec![Type::Str], Type::Int));
+        functions.insert("http_get_with_headers".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("http_post".to_string(), (vec![Type::Str, Type::Str, Type::Str], Type::Int));
+        functions.insert("http_put".to_string(), (vec![Type::Str, Type::Str, Type::Str], Type::Int));
+        functions.insert("http_delete".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("http_patch".to_string(), (vec![Type::Str, Type::Str, Type::Str], Type::Int));
+        functions.insert("http_head".to_string(), (vec![Type::Str, Type::Str], Type::Int));
+        functions.insert("http_response_status".to_string(), (vec![Type::Int], Type::Int));
+        functions.insert("http_response_body".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("http_response_headers".to_string(), (vec![Type::Int], Type::Str));
+        functions.insert("http_response_get_header".to_string(), (vec![Type::Int, Type::Str], Type::Str));
+        functions.insert("http_response_free".to_string(), (vec![Type::Int], Type::Void));
+
         TypeChecker {
             symbol_table: vec![HashMap::new()],
             functions,

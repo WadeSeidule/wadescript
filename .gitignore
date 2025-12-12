@@ -1,3 +1,5 @@
 /target
 
 *.dSYM/
+
+node_modules/

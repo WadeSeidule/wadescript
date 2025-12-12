@@ -24,6 +24,7 @@ pub struct CodeGen<'ctx> {
     current_function: Option<FunctionValue<'ctx>>,
     class_types: HashMap<String, StructType<'ctx>>,
     class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
+    class_field_types: HashMap<String, Vec<Type>>, // class_name -> field types in order
     current_class: Option<String>, // Track current class being compiled
     loop_stack: Vec<LoopContext<'ctx>>, // Stack of loop contexts for break/continue
     // RC Optimization: track variables that have been moved (ownership transferred)
@@ -79,6 +80,7 @@ impl<'ctx> CodeGen<'ctx> {
             current_function: None,
             class_types: HashMap::new(),
             class_fields: HashMap::new(),
+            class_field_types: HashMap::new(),
             current_class: None,
             loop_stack: Vec::new(),
             moved_variables: HashSet::new(),
@@ -114,6 +116,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_string_functions();
         self.declare_io_functions();
         self.declare_cli_functions();
+        self.declare_http_functions();
         self.declare_runtime_error_functions();
         self.mark_builtin_pure_functions();
     }
@@ -232,6 +235,53 @@ impl<'ctx> CodeGen<'ctx> {
         // Note: Str excluded for now because string literals are global constants
         // We'll add proper string RC later (need to distinguish literals from allocated strings)
         matches!(ws_type, Type::List(_) | Type::Dict(_, _) | Type::Custom(_))
+    }
+
+    // Helper: Check if an expression evaluates to a string type
+    fn is_string_expression(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::StringLiteral(_) => true,
+            Expression::Variable(var_name) => {
+                if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                    ast_type == &Type::Str
+                } else {
+                    false
+                }
+            }
+            Expression::MemberAccess { object, member } => {
+                // Check if this is accessing a string field on a class
+                if let Expression::Variable(var_name) = &**object {
+                    if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                        if let Type::Custom(class_name) = ast_type {
+                            // Look up field type in class definition
+                            if let Some(field_names) = self.class_fields.get(class_name) {
+                                if let Some(field_idx) = field_names.iter().position(|f| f == member) {
+                                    if let Some(field_types) = self.class_field_types.get(class_name) {
+                                        if let Some(field_type) = field_types.get(field_idx) {
+                                            return field_type == &Type::Str;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            Expression::FString { .. } => true,
+            Expression::MethodCall { object, method, .. } => {
+                // String methods return strings
+                if let Expression::Variable(var_name) = &**object {
+                    if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
+                        if ast_type == &Type::Str {
+                            return matches!(method.as_str(), "upper" | "lower");
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
     }
 
     // OPTIMIZATION Phase 3+4: Check if expression causes variable to escape
@@ -713,6 +763,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.declare_string_functions();
         self.declare_io_functions();
         self.declare_cli_functions();
+        self.declare_http_functions();
         self.declare_runtime_error_functions();
 
         // Phase 4: Mark built-in pure functions (don't cause escape)
@@ -1142,6 +1193,72 @@ impl<'ctx> CodeGen<'ctx> {
         self.functions.insert("cli_after_prefix".to_string(), after_fn);
     }
 
+    fn declare_http_functions(&mut self) {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let void_type = self.context.void_type();
+
+        // http_get(url: ptr) -> i64 (handle)
+        let get_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let get_fn = self.module.add_function("http_get", get_type, None);
+        self.functions.insert("http_get".to_string(), get_fn);
+
+        // http_get_with_headers(url: ptr, headers: ptr) -> i64
+        let get_headers_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let get_headers_fn = self.module.add_function("http_get_with_headers", get_headers_type, None);
+        self.functions.insert("http_get_with_headers".to_string(), get_headers_fn);
+
+        // http_post(url: ptr, body: ptr, headers: ptr) -> i64
+        let post_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let post_fn = self.module.add_function("http_post", post_type, None);
+        self.functions.insert("http_post".to_string(), post_fn);
+
+        // http_put(url: ptr, body: ptr, headers: ptr) -> i64
+        let put_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let put_fn = self.module.add_function("http_put", put_type, None);
+        self.functions.insert("http_put".to_string(), put_fn);
+
+        // http_delete(url: ptr, headers: ptr) -> i64
+        let delete_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let delete_fn = self.module.add_function("http_delete", delete_type, None);
+        self.functions.insert("http_delete".to_string(), delete_fn);
+
+        // http_patch(url: ptr, body: ptr, headers: ptr) -> i64
+        let patch_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let patch_fn = self.module.add_function("http_patch", patch_type, None);
+        self.functions.insert("http_patch".to_string(), patch_fn);
+
+        // http_head(url: ptr, headers: ptr) -> i64
+        let head_type = i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let head_fn = self.module.add_function("http_head", head_type, None);
+        self.functions.insert("http_head".to_string(), head_fn);
+
+        // http_response_status(handle: i64) -> i64
+        let status_type = i64_type.fn_type(&[i64_type.into()], false);
+        let status_fn = self.module.add_function("http_response_status", status_type, None);
+        self.functions.insert("http_response_status".to_string(), status_fn);
+
+        // http_response_body(handle: i64) -> ptr
+        let body_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let body_fn = self.module.add_function("http_response_body", body_type, None);
+        self.functions.insert("http_response_body".to_string(), body_fn);
+
+        // http_response_headers(handle: i64) -> ptr
+        let headers_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let headers_fn = self.module.add_function("http_response_headers", headers_type, None);
+        self.functions.insert("http_response_headers".to_string(), headers_fn);
+
+        // http_response_get_header(handle: i64, name: ptr) -> ptr
+        let get_header_type = ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false);
+        let get_header_fn = self.module.add_function("http_response_get_header", get_header_type, None);
+        self.functions.insert("http_response_get_header".to_string(), get_header_fn);
+
+        // http_response_free(handle: i64) -> void
+        let free_type = void_type.fn_type(&[i64_type.into()], false);
+        let free_fn = self.module.add_function("http_response_free", free_type, None);
+        self.functions.insert("http_response_free".to_string(), free_fn);
+    }
+
     fn mark_builtin_pure_functions(&mut self) {
         // Phase 4: Mark functions that don't cause their RC parameters to escape
         // These functions either:
@@ -1451,6 +1568,10 @@ impl<'ctx> CodeGen<'ctx> {
                 // Store field names in order
                 let field_names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
                 self.class_fields.insert(name.clone(), field_names);
+
+                // Store field types in order
+                let ast_field_types: Vec<Type> = fields.iter().map(|f| f.field_type.clone()).collect();
+                self.class_field_types.insert(name.clone(), ast_field_types);
 
                 // Create LLVM struct type for the class
                 let field_types: Vec<BasicTypeEnum> = fields
@@ -2355,6 +2476,28 @@ impl<'ctx> CodeGen<'ctx> {
                                 )
                                 .unwrap()
                                 .as_basic_value_enum())
+                        } else if left_val.is_pointer_value() {
+                            // String comparison using strcmp
+                            let strcmp_fn = self.functions.get("strcmp").unwrap();
+                            let cmp_result = self
+                                .builder
+                                .build_call(
+                                    *strcmp_fn,
+                                    &[left_val.into(), right_val.into()],
+                                    "strcmp_result",
+                                )
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                                .into_int_value();
+                            // strcmp returns 0 if equal, so compare result == 0
+                            let zero = self.context.i32_type().const_int(0, false);
+                            Ok(self
+                                .builder
+                                .build_int_compare(IntPredicate::EQ, cmp_result, zero, "streq")
+                                .unwrap()
+                                .as_basic_value_enum())
                         } else {
                             Ok(self
                                 .builder
@@ -2379,6 +2522,28 @@ impl<'ctx> CodeGen<'ctx> {
                                     right_val.into_int_value(),
                                     "netmp",
                                 )
+                                .unwrap()
+                                .as_basic_value_enum())
+                        } else if left_val.is_pointer_value() {
+                            // String comparison using strcmp
+                            let strcmp_fn = self.functions.get("strcmp").unwrap();
+                            let cmp_result = self
+                                .builder
+                                .build_call(
+                                    *strcmp_fn,
+                                    &[left_val.into(), right_val.into()],
+                                    "strcmp_result",
+                                )
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap()
+                                .into_int_value();
+                            // strcmp returns 0 if equal, so compare result != 0
+                            let zero = self.context.i32_type().const_int(0, false);
+                            Ok(self
+                                .builder
+                                .build_int_compare(IntPredicate::NE, cmp_result, zero, "strne")
                                 .unwrap()
                                 .as_basic_value_enum())
                         } else {
@@ -2737,16 +2902,7 @@ impl<'ctx> CodeGen<'ctx> {
                     let obj_val = self.compile_expression(object)?;
 
                     // Determine the type of object to call the right function
-                    // Try to get the type from the variable if it's a variable reference
-                    let use_str_length = if let Expression::Variable(var_name) = &**object {
-                        if let Some((_ptr, _llvm_type, ast_type)) = self.variables.get(var_name) {
-                            ast_type == &Type::Str
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
+                    let use_str_length = self.is_string_expression(object);
 
                     let length_fn = if use_str_length {
                         self.functions.get("str_length").unwrap()

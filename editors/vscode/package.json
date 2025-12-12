@@ -1,0 +1,67 @@
+{
+  "name": "wadescript",
+  "displayName": "WadeScript",
+  "description": "Language support for WadeScript",
+  "version": "0.1.0",
+  "publisher": "wadescript",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:wadescript"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "wadescript",
+        "aliases": [
+          "WadeScript",
+          "wadescript"
+        ],
+        "extensions": [
+          ".ws"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wadescript",
+        "scopeName": "source.wadescript",
+        "path": "./syntaxes/wadescript.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "WadeScript",
+      "properties": {
+        "wadescript.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the wadescript executable. If empty, uses 'wadescript' from PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

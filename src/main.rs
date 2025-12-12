@@ -1,6 +1,7 @@
 mod ast;
 mod codegen;
 mod jit;
+mod language_defs;
 mod lexer;
 mod lsp;
 mod parser;

@@ -106,7 +106,35 @@ src/lsp/
   analysis.rs     - Analysis coordinator
   diagnostics.rs  - Error conversion to LSP diagnostics
   span.rs         - Span and position utilities
+
+src/language_defs.rs - Centralized language definitions (used by LSP)
 ```
+
+### Centralized Language Definitions
+
+The LSP uses `src/language_defs.rs` as the single source of truth for:
+- **Keywords**: `get_keywords()` - all language keywords
+- **Type keywords**: `get_type_keywords()` - int, float, str, bool, etc.
+- **Built-in functions**: `get_builtin_functions()` - print_int, range, file_*, etc.
+- **List/String methods**: `get_list_methods()`, `get_string_methods()`
+- **Standard library**: `get_stdlib_modules()` - io, cli, http modules with functions and classes
+
+When adding new language features, update `language_defs.rs` to ensure the LSP provides accurate completions and hover information.
+
+### Standard Library Completions
+
+The LSP provides completions for all standard library modules:
+
+| Module | Functions | Classes |
+|--------|-----------|---------|
+| `io` | open, read, read_line, write, close, exists | - |
+| `cli` | get_args, argc, argv, parse_int, parse_bool, starts_with, str_eq | - |
+| `http` | get, post, put, delete, patch, head (+ _with_headers variants) | HttpResponse |
+
+Completions include full signatures and documentation. Example completions:
+- `io` (module)
+- `io.open` with signature `(path: str, mode: str) -> int`
+- `HttpResponse` (class) with fields
 
 ## Troubleshooting
 

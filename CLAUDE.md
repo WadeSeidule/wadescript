@@ -89,7 +89,8 @@ wadescript/
 │   ├── codegen.rs        # LLVM IR generation (includes RC optimizations)
 │   ├── jit.rs            # JIT engine for REPL
 │   ├── repl.rs           # Interactive REPL
-│   ├── runtime_symbols.rs # Centralized runtime symbol registry
+│   ├── runtime_symbols.rs # Centralized runtime symbol registry (for JIT)
+│   ├── language_defs.rs  # Centralized language definitions (for LSP)
 │   ├── lsp/              # Language Server Protocol implementation
 │   │   ├── mod.rs        # LSP module root
 │   │   ├── server.rs     # LSP server (tower-lsp)
@@ -195,6 +196,18 @@ When adding a new runtime function that needs to be available in both compiled m
    - Add a `RuntimeSymbol { name: "func_name", addr: func_name as usize }` entry
 
 This ensures the function is automatically available to the JIT for REPL usage. The centralized registry prevents JIT from falling out of sync with the compiler.
+
+### Updating LSP Language Definitions
+
+When adding new keywords, types, or built-in functions, update `src/language_defs.rs`:
+
+1. **Keywords**: Add to `get_keywords()` - must match lexer.rs
+2. **Type keywords**: Add to `get_type_keywords()` - must match lexer.rs type tokens
+3. **Built-in functions**: Add to `get_builtin_functions()` - must match typechecker.rs registrations
+4. **List/String methods**: Add to `get_list_methods()` or `get_string_methods()`
+5. **Standard library modules**: Add to `get_stdlib_modules()` - must match std/*.ws files
+
+This ensures the LSP provides accurate completions and hover info for new language features.
 
 ### Testing
 

@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use tower_lsp::lsp_types::*;
 
 use crate::ast::{Statement, Type};
+use crate::language_defs::{
+    get_keywords, get_type_keywords, get_builtin_functions,
+    get_list_methods, get_string_methods, get_stdlib_modules, get_stdlib_module_names
+};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::typechecker::TypeChecker;
@@ -132,14 +136,8 @@ impl Analyzer {
             });
         }
 
-        // Add keywords
-        let keywords = [
-            "def", "class", "if", "elif", "else", "while", "for", "in",
-            "return", "break", "continue", "pass", "try", "except", "finally",
-            "raise", "import", "assert", "True", "False", "None", "and", "or", "not",
-        ];
-
-        for kw in keywords {
+        // Add keywords from centralized registry
+        for kw in get_keywords() {
             items.push(CompletionItem {
                 label: kw.to_string(),
                 kind: Some(CompletionItemKind::KEYWORD),
@@ -147,14 +145,92 @@ impl Analyzer {
             });
         }
 
-        // Add types
-        let types = ["int", "float", "str", "bool", "list", "dict", "void"];
-        for ty in types {
+        // Add types from centralized registry
+        for ty in get_type_keywords() {
             items.push(CompletionItem {
                 label: ty.to_string(),
                 kind: Some(CompletionItemKind::TYPE_PARAMETER),
                 ..Default::default()
             });
+        }
+
+        // Add built-in functions from centralized registry
+        for func in get_builtin_functions() {
+            items.push(CompletionItem {
+                label: func.name.to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(func.signature.to_string()),
+                documentation: Some(Documentation::String(func.description.to_string())),
+                ..Default::default()
+            });
+        }
+
+        // Add list methods
+        for (name, sig, desc) in get_list_methods() {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::METHOD),
+                detail: Some(format!("list.{}{}", name, sig)),
+                documentation: Some(Documentation::String(desc.to_string())),
+                ..Default::default()
+            });
+        }
+
+        // Add string methods
+        for (name, sig, desc) in get_string_methods() {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::METHOD),
+                detail: Some(format!("str.{}{}", name, sig)),
+                documentation: Some(Documentation::String(desc.to_string())),
+                ..Default::default()
+            });
+        }
+
+        // Add stdlib module names (for imports and qualified calls)
+        for module_name in get_stdlib_module_names() {
+            items.push(CompletionItem {
+                label: module_name.to_string(),
+                kind: Some(CompletionItemKind::MODULE),
+                detail: Some("standard library module".to_string()),
+                ..Default::default()
+            });
+        }
+
+        // Add stdlib functions as module.function
+        for module in get_stdlib_modules() {
+            // Add module functions
+            for func in &module.functions {
+                items.push(CompletionItem {
+                    label: format!("{}.{}", module.name, func.name),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(func.signature.to_string()),
+                    documentation: Some(Documentation::String(format!(
+                        "{}\n\nModule: {} - {}",
+                        func.description, module.name, module.description
+                    ))),
+                    insert_text: Some(format!("{}.{}", module.name, func.name)),
+                    ..Default::default()
+                });
+            }
+
+            // Add module classes
+            for class in &module.classes {
+                items.push(CompletionItem {
+                    label: class.name.to_string(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    detail: Some(format!("class from {}", module.name)),
+                    documentation: Some(Documentation::String(format!(
+                        "{}\n\nFields: {}",
+                        class.description,
+                        class.fields.iter()
+                            .map(|(n, t)| format!("{}: {}", n, t))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))),
+                    ..Default::default()
+                });
+            }
         }
 
         // Filter based on what's being typed

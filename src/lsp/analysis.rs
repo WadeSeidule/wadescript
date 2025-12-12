@@ -546,6 +546,10 @@ fn format_type(ty: &Type) -> String {
         Type::Custom(name) => name.clone(),
         Type::Optional(inner) => format!("{}?", format_type(inner)),
         Type::Exception => "Exception".to_string(),
+        Type::Tuple(types) => {
+            let inner = types.iter().map(|t| format_type(t)).collect::<Vec<_>>().join(", ");
+            format!("({})", inner)
+        }
     }
 }
 

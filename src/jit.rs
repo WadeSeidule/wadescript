@@ -43,86 +43,24 @@ impl<'ctx> JitEngine<'ctx> {
     }
 
     /// Register runtime symbols using LLVM's global symbol table
+    /// Uses the centralized registry in runtime_symbols.rs to ensure
+    /// JIT stays in sync with compiled mode.
     fn register_runtime_symbols_direct(&self) {
-        use crate::runtime::list::*;
-        use crate::runtime::dict::*;
-        use crate::runtime::string::*;
-        use crate::runtime::rc::*;
-        use crate::runtime::io::*;
-        use crate::runtime::exceptions::*;
-        use crate::runtime::{push_call_stack, pop_call_stack, runtime_error};
+        use crate::runtime_symbols::get_runtime_symbols;
         use std::ffi::CString;
 
-        // Helper to add a symbol to LLVM's global symbol table
-        fn add_symbol(name: &str, addr: usize) {
-            let cname = CString::new(name).unwrap();
+        // Get all symbols from the centralized registry
+        let symbols = get_runtime_symbols();
+
+        for symbol in symbols {
+            let cname = CString::new(symbol.name).unwrap();
             unsafe {
-                // Use LLVM's C API directly
                 extern "C" {
                     fn LLVMAddSymbol(symbolName: *const std::os::raw::c_char, symbolValue: *mut std::ffi::c_void);
                 }
-                LLVMAddSymbol(cname.as_ptr(), addr as *mut std::ffi::c_void);
+                LLVMAddSymbol(cname.as_ptr(), symbol.addr as *mut std::ffi::c_void);
             }
         }
-
-        // List operations
-        add_symbol("list_get_i64", list_get_i64 as usize);
-        add_symbol("list_push_i64", list_push_i64 as usize);
-        add_symbol("list_pop_i64", list_pop_i64 as usize);
-        add_symbol("list_set_i64", list_set_i64 as usize);
-
-        // Dict operations
-        add_symbol("dict_create", dict_create as usize);
-        add_symbol("dict_set", dict_set as usize);
-        add_symbol("dict_get", dict_get as usize);
-        add_symbol("dict_has", dict_has as usize);
-
-        // String operations
-        add_symbol("str_length", str_length as usize);
-        add_symbol("str_upper", str_upper as usize);
-        add_symbol("str_lower", str_lower as usize);
-        add_symbol("str_contains", str_contains as usize);
-        add_symbol("str_char_at", str_char_at as usize);
-
-        // RC operations
-        add_symbol("rc_alloc", rc_alloc as usize);
-        add_symbol("rc_retain", rc_retain as usize);
-        add_symbol("rc_release", rc_release as usize);
-        add_symbol("rc_get_count", rc_get_count as usize);
-        add_symbol("rc_is_valid", rc_is_valid as usize);
-
-        // File I/O operations
-        add_symbol("file_open", file_open as usize);
-        add_symbol("file_read", file_read as usize);
-        add_symbol("file_read_line", file_read_line as usize);
-        add_symbol("file_write", file_write as usize);
-        add_symbol("file_close", file_close as usize);
-        add_symbol("file_exists", file_exists as usize);
-
-        // Exception handling
-        add_symbol("exception_create", exception_create as usize);
-        add_symbol("exception_get_current", exception_get_current as usize);
-        add_symbol("exception_set_current", exception_set_current as usize);
-        add_symbol("exception_clear", exception_clear as usize);
-        add_symbol("exception_get_type", exception_get_type as usize);
-        add_symbol("exception_get_message", exception_get_message as usize);
-        add_symbol("exception_matches", exception_matches as usize);
-        add_symbol("exception_push_handler", exception_push_handler as usize);
-        add_symbol("exception_pop_handler", exception_pop_handler as usize);
-        add_symbol("exception_raise", exception_raise as usize);
-
-        // Call stack functions
-        add_symbol("push_call_stack", push_call_stack as usize);
-        add_symbol("pop_call_stack", pop_call_stack as usize);
-        add_symbol("runtime_error", runtime_error as usize);
-
-        // Standard C library functions (these should already be available but add anyway)
-        add_symbol("printf", libc::printf as usize);
-        add_symbol("malloc", libc::malloc as usize);
-        add_symbol("free", libc::free as usize);
-        add_symbol("memcpy", libc::memcpy as usize);
-        add_symbol("strlen", libc::strlen as usize);
-        add_symbol("exit", libc::exit as usize);
     }
 
     /// Add a module to the JIT engine and compile it

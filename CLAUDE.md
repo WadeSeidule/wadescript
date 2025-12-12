@@ -26,6 +26,10 @@
 - **CLI Module**: `docs/CLI.md` - Command-line argument parsing
 - **HTTP Module**: `docs/HTTP.md` - HTTP client for web requests
 - **Language Server**: `docs/LSP.md` - LSP implementation for IDE integration
+- **Tuples**: `docs/TUPLES.md` - Tuple types, literals, unpacking, indexing
+- **Slices**: `docs/SLICES.md` - Python-style slice syntax for lists and strings
+- **Named Arguments**: `docs/NAMED_ARGS.md` - Named arguments and default parameters
+- **REPL**: `docs/REPL.md` - Interactive Read-Eval-Print Loop
 
 ## Project Overview
 
@@ -34,9 +38,11 @@ WadeScript is a statically-typed programming language that compiles to native co
 **Language Features:**
 - Static type system with type inference
 - Functions with explicit return types
+- Named arguments and default parameters
 - Control flow (if/elif/else, while, for loops, break/continue)
 - Exception handling (try/except/finally, raise)
-- Data structures (lists, dictionaries, arrays)
+- Data structures (lists, dictionaries, arrays, tuples)
+- Slice syntax for lists and strings (`list[1:5]`, `str[::2]`)
 - String methods (upper, lower, contains) and string iteration
 - Classes with methods and fields
 - Module system with imports
@@ -46,6 +52,7 @@ WadeScript is a statically-typed programming language that compiles to native co
 - Assert statements for testing
 - Reference counting with automatic memory management
 - Built-in functions (print_int, print_float, print_str, print_bool, range)
+- Interactive REPL with JIT compilation
 
 ## Quick Reference
 
@@ -80,6 +87,9 @@ wadescript/
 │   ├── ast.rs            # Abstract Syntax Tree
 │   ├── typechecker.rs    # Type checking
 │   ├── codegen.rs        # LLVM IR generation (includes RC optimizations)
+│   ├── jit.rs            # JIT engine for REPL
+│   ├── repl.rs           # Interactive REPL
+│   ├── runtime_symbols.rs # Centralized runtime symbol registry
 │   ├── lsp/              # Language Server Protocol implementation
 │   │   ├── mod.rs        # LSP module root
 │   │   ├── server.rs     # LSP server (tower-lsp)
@@ -88,10 +98,16 @@ wadescript/
 │   │   ├── diagnostics.rs # Error to diagnostic conversion
 │   │   └── span.rs       # Span and position utilities
 │   └── runtime/          # Rust runtime library
-│       ├── lib.rs        # Error handling, call stack
+│       ├── lib.rs        # Library exports (for static library)
+│       ├── mod.rs        # Module exports (for main binary)
 │       ├── list.rs       # Dynamic lists
 │       ├── dict.rs       # Hash table dictionaries
-│       └── string.rs     # String operations
+│       ├── string.rs     # String operations
+│       ├── rc.rs         # Reference counting
+│       ├── io.rs         # File I/O operations
+│       ├── cli.rs        # CLI argument parsing
+│       ├── http.rs       # HTTP client
+│       └── exceptions.rs # Exception handling
 ├── docs/                 # All detailed documentation
 ├── examples/             # Example WadeScript programs
 ├── tests/                # Test suite
@@ -162,10 +178,23 @@ See `docs/DATA_STRUCTURES.md` for implementation details.
 4. **Update Type Checker** (typechecker.rs): Add type checking
 5. **Update Code Generator** (codegen.rs): Generate LLVM IR
 6. **Update Runtime** (src/runtime/*.rs): Add runtime functions if needed
-7. **Test**: Create test in `tests/` directory
-8. **Build and verify**: `make test`
+7. **Update Runtime Symbols** (runtime_symbols.rs): Register new runtime functions (see below)
+8. **Test**: Create test in `tests/` directory
+9. **Build and verify**: `make test`
 
 See `docs/TESTING.md` for testing guidelines.
+
+### Adding a New Runtime Function
+
+When adding a new runtime function that needs to be available in both compiled mode and REPL:
+
+1. **Implement the function** in `src/runtime/*.rs` with `#[no_mangle] pub extern "C"`
+2. **Declare it in codegen.rs** (in the appropriate `declare_*_functions` method)
+3. **Register it in runtime_symbols.rs**:
+   - Add the import at the top of `get_runtime_symbols()`
+   - Add a `RuntimeSymbol { name: "func_name", addr: func_name as usize }` entry
+
+This ensures the function is automatically available to the JIT for REPL usage. The centralized registry prevents JIT from falling out of sync with the compiler.
 
 ### Testing
 
@@ -269,6 +298,58 @@ has: bool = s.contains("ell") # Method
 
 # F-strings
 msg: str = f"Name: {name}, Age: {age}"
+```
+
+### Tuples
+```wadescript
+# Tuple type and literal
+point: (int, int) = (10, 20)
+data: (str, int, bool) = ("Alice", 30, True)
+
+# Tuple indexing (compile-time indices)
+x: int = point.0
+y: int = point.1
+
+# Tuple unpacking
+a, b = point
+name, age, active = data
+```
+
+### Slices
+```wadescript
+nums: list[int] = [0, 1, 2, 3, 4, 5]
+
+# Basic slicing
+sub: list[int] = nums[1:4]     # [1, 2, 3]
+first3: list[int] = nums[:3]   # [0, 1, 2]
+last3: list[int] = nums[3:]    # [3, 4, 5]
+
+# With step
+every2: list[int] = nums[::2]  # [0, 2, 4]
+reversed: list[int] = nums[::-1]  # [5, 4, 3, 2, 1, 0]
+
+# String slicing
+s: str = "hello world"
+hello: str = s[:5]   # "hello"
+```
+
+### Named Arguments and Defaults
+```wadescript
+# Function with default parameters
+def greet(name: str = "World", excited: bool = False) -> void {
+    if excited {
+        print_str(f"Hello, {name}!")
+    } else {
+        print_str(f"Hello, {name}")
+    }
+}
+
+# Calling with named arguments
+greet()                          # Uses defaults
+greet("Alice")                   # Positional
+greet(name="Bob")                # Named
+greet(excited=True)              # Skip to later param
+greet("Charlie", excited=True)   # Mix positional and named
 ```
 
 ### Exception Handling

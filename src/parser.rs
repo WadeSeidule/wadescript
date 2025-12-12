@@ -139,6 +139,25 @@ impl Parser {
                     unreachable!()
                 };
 
+                // Check for tuple unpacking: a, b = expr
+                if self.check(&Token::Comma) {
+                    let mut names = vec![name];
+
+                    while self.match_token(&[Token::Comma]) {
+                        if let Token::Identifier(n) = self.peek().clone() {
+                            self.advance();
+                            names.push(n);
+                        } else {
+                            panic!("Expected identifier in tuple unpacking");
+                        }
+                    }
+
+                    self.consume(Token::Equal, "Expected '=' after tuple names");
+                    let value = self.expression();
+                    self.skip_newlines();
+                    return Statement::TupleUnpack { names, value };
+                }
+
                 // Check for ++ or -- operators
                 if self.match_token(&[Token::PlusPlus]) {
                     self.skip_newlines();
@@ -228,9 +247,17 @@ impl Parser {
                 self.consume(Token::Colon, "Expected ':' after parameter name");
                 let param_type = self.parse_type();
 
+                // Check for default value
+                let default_value = if self.match_token(&[Token::Equal]) {
+                    Some(self.expression())
+                } else {
+                    None
+                };
+
                 params.push(Parameter {
                     name: param_name,
                     param_type,
+                    default_value,
                 });
 
                 if !self.match_token(&[Token::Comma]) {
@@ -538,6 +565,24 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Type {
+        // Check for tuple type: (int, str, bool)
+        if self.check(&Token::LeftParen) {
+            self.advance();
+            let mut types = Vec::new();
+
+            if !self.check(&Token::RightParen) {
+                loop {
+                    types.push(self.parse_type());
+                    if !self.match_token(&[Token::Comma]) {
+                        break;
+                    }
+                }
+            }
+
+            self.consume(Token::RightParen, "Expected ')' after tuple type");
+            return Type::Tuple(types);
+        }
+
         let base_type = match self.peek() {
             Token::IntType => {
                 self.advance();
@@ -845,9 +890,37 @@ impl Parser {
             if self.match_token(&[Token::LeftParen]) {
                 let line = self.tokens[self.current - 1].location().line; // Capture line of '('
                 let mut args = Vec::new();
+                let mut named_args = Vec::new();
+                let mut seen_named = false;
+
                 if !self.check(&Token::RightParen) {
                     loop {
-                        args.push(self.expression());
+                        // Check if this is a named argument: identifier followed by '='
+                        let is_named = if let Token::Identifier(_) = self.peek() {
+                            // Look ahead for '='
+                            self.current + 1 < self.tokens.len() &&
+                                matches!(self.tokens[self.current + 1].token, Token::Equal)
+                        } else {
+                            false
+                        };
+
+                        if is_named {
+                            seen_named = true;
+                            let name = if let Token::Identifier(n) = self.advance() {
+                                n
+                            } else {
+                                unreachable!()
+                            };
+                            self.consume(Token::Equal, "Expected '=' in named argument");
+                            let value = self.expression();
+                            named_args.push((name, value));
+                        } else {
+                            if seen_named {
+                                self.parse_error("Positional arguments must come before named arguments");
+                            }
+                            args.push(self.expression());
+                        }
+
                         if !self.match_token(&[Token::Comma]) {
                             break;
                         }
@@ -857,23 +930,107 @@ impl Parser {
                 expr = Expression::Call {
                     callee: Box::new(expr),
                     args,
+                    named_args,
                     line,
                 };
             } else if self.match_token(&[Token::LeftBracket]) {
                 let line = self.tokens[self.current - 1].location().line;
-                let index = self.expression();
-                self.consume(Token::RightBracket, "Expected ']' after index");
-                expr = Expression::Index {
-                    object: Box::new(expr),
-                    index: Box::new(index),
-                    line,
-                };
+
+                // Check for slice syntax: [start:end:step]
+                // Patterns: [:], [start:], [:end], [start:end], [::step], [start::step], [:end:step], [start:end:step]
+                if self.check(&Token::Colon) {
+                    // Slice with no start: [:...
+                    self.advance(); // consume first ':'
+
+                    // Check for end
+                    let end = if self.check(&Token::RightBracket) || self.check(&Token::Colon) {
+                        None
+                    } else {
+                        Some(Box::new(self.expression()))
+                    };
+
+                    // Check for step
+                    let step = if self.match_token(&[Token::Colon]) {
+                        if self.check(&Token::RightBracket) {
+                            None
+                        } else {
+                            Some(Box::new(self.expression()))
+                        }
+                    } else {
+                        None
+                    };
+
+                    self.consume(Token::RightBracket, "Expected ']' after slice");
+                    expr = Expression::Slice {
+                        object: Box::new(expr),
+                        start: None,
+                        end,
+                        step,
+                        line,
+                    };
+                } else {
+                    // Start with expression, could be index or slice
+                    let first_expr = self.expression();
+
+                    if self.match_token(&[Token::Colon]) {
+                        // This is a slice with start
+                        let start = Some(Box::new(first_expr));
+
+                        // Check for end
+                        let end = if self.check(&Token::RightBracket) || self.check(&Token::Colon) {
+                            None
+                        } else {
+                            Some(Box::new(self.expression()))
+                        };
+
+                        // Check for step
+                        let step = if self.match_token(&[Token::Colon]) {
+                            if self.check(&Token::RightBracket) {
+                                None
+                            } else {
+                                Some(Box::new(self.expression()))
+                            }
+                        } else {
+                            None
+                        };
+
+                        self.consume(Token::RightBracket, "Expected ']' after slice");
+                        expr = Expression::Slice {
+                            object: Box::new(expr),
+                            start,
+                            end,
+                            step,
+                            line,
+                        };
+                    } else {
+                        // Regular index access
+                        self.consume(Token::RightBracket, "Expected ']' after index");
+                        expr = Expression::Index {
+                            object: Box::new(expr),
+                            index: Box::new(first_expr),
+                            line,
+                        };
+                    }
+                }
             } else if self.match_token(&[Token::Dot]) {
+                let line = self.tokens[self.current - 1].location().line;
+
+                // Check for tuple index (e.g., tuple.0, tuple.1)
+                if let Token::IntLiteral(idx) = self.peek().clone() {
+                    self.advance();
+                    expr = Expression::TupleIndex {
+                        tuple: Box::new(expr),
+                        index: idx as usize,
+                        line,
+                    };
+                    continue;
+                }
+
                 let member = if let Token::Identifier(n) = self.peek().clone() {
                     self.advance();
                     n
                 } else {
-                    panic!("Expected member name after '.'");
+                    panic!("Expected member name or tuple index after '.'");
                 };
 
                 // Check if this is a method call
@@ -1005,9 +1162,41 @@ impl Parser {
             }
             Token::LeftParen => {
                 self.advance();
-                let expr = self.expression();
-                self.consume(Token::RightParen, "Expected ')' after expression");
-                expr
+
+                // Empty tuple () or first expression
+                if self.check(&Token::RightParen) {
+                    self.advance();
+                    return Expression::TupleLiteral { elements: Vec::new() };
+                }
+
+                let first = self.expression();
+
+                // Check if this is a tuple (has comma) or just a grouped expression
+                if self.match_token(&[Token::Comma]) {
+                    // It's a tuple
+                    let mut elements = vec![first];
+
+                    // Parse remaining elements
+                    if !self.check(&Token::RightParen) {
+                        loop {
+                            elements.push(self.expression());
+                            if !self.match_token(&[Token::Comma]) {
+                                break;
+                            }
+                            // Allow trailing comma
+                            if self.check(&Token::RightParen) {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.consume(Token::RightParen, "Expected ')' after tuple elements");
+                    Expression::TupleLiteral { elements }
+                } else {
+                    // Just a grouped expression
+                    self.consume(Token::RightParen, "Expected ')' after expression");
+                    first
+                }
             }
             Token::LeftBracket => {
                 self.advance();
@@ -1446,7 +1635,7 @@ if x > 10 {
     fn test_parse_function_call() {
         let program = parse_source("print_int(42)");
 
-        if let Statement::Expression(Expression::Call { callee, args, line: _ }) = &program.statements[0] {
+        if let Statement::Expression(Expression::Call { callee, args, line: _, .. }) = &program.statements[0] {
             assert!(matches!(**callee, Expression::Variable(_)));
             assert_eq!(args.len(), 1);
         } else {
@@ -1756,6 +1945,107 @@ try {
             assert_eq!(finally_block.as_ref().unwrap().len(), 1);
         } else {
             panic!("Expected Try statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_type() {
+        let program = parse_source("point: (int, int) = (10, 20)");
+
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            if let Type::Tuple(types) = type_annotation {
+                assert_eq!(types.len(), 2);
+                assert_eq!(types[0], Type::Int);
+                assert_eq!(types[1], Type::Int);
+            } else {
+                panic!("Expected Tuple type");
+            }
+        } else {
+            panic!("Expected VarDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_literal() {
+        let program = parse_source("x = (1, 2, 3)");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::TupleLiteral { elements } = &**value {
+                assert_eq!(elements.len(), 3);
+            } else {
+                panic!("Expected TupleLiteral expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_unpacking() {
+        let program = parse_source("x, y = point");
+
+        if let Statement::TupleUnpack { names, value } = &program.statements[0] {
+            assert_eq!(names.len(), 2);
+            assert_eq!(names[0], "x");
+            assert_eq!(names[1], "y");
+            assert!(matches!(value, Expression::Variable(_)));
+        } else {
+            panic!("Expected TupleUnpack statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_index() {
+        let program = parse_source("x = point.0");
+
+        if let Statement::Expression(Expression::Assignment { value, .. }) = &program.statements[0] {
+            if let Expression::TupleIndex { index, .. } = &**value {
+                assert_eq!(*index, 0);
+            } else {
+                panic!("Expected TupleIndex expression");
+            }
+        } else {
+            panic!("Expected Assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_mixed_types() {
+        let program = parse_source("data: (str, int, bool) = (\"Alice\", 30, True)");
+
+        if let Statement::VarDecl { type_annotation, .. } = &program.statements[0] {
+            if let Type::Tuple(types) = type_annotation {
+                assert_eq!(types.len(), 3);
+                assert_eq!(types[0], Type::Str);
+                assert_eq!(types[1], Type::Int);
+                assert_eq!(types[2], Type::Bool);
+            } else {
+                panic!("Expected Tuple type");
+            }
+        } else {
+            panic!("Expected VarDecl");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_returning_tuple() {
+        let source = r#"
+def get_point() -> (int, int) {
+    return (10, 20)
+}
+"#;
+        let program = parse_source(source);
+
+        if let Statement::FunctionDef { return_type, .. } = &program.statements[0] {
+            if let Type::Tuple(types) = return_type {
+                assert_eq!(types.len(), 2);
+                assert_eq!(types[0], Type::Int);
+                assert_eq!(types[1], Type::Int);
+            } else {
+                panic!("Expected Tuple return type");
+            }
+        } else {
+            panic!("Expected FunctionDef");
         }
     }
 }

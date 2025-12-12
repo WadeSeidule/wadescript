@@ -64,6 +64,10 @@ impl Repl {
             Type::Optional(_) => 8,  // pointer (nullable)
             Type::Custom(_) => 8,  // pointer to struct
             Type::Exception => 8,  // pointer
+            Type::Tuple(types) => {
+                // Tuples are stored inline as struct, sum of element sizes
+                types.iter().map(|t| Self::type_size(t)).sum()
+            }
         }
     }
 

@@ -21,6 +21,7 @@ pub struct CodeGen<'ctx> {
     builder: Builder<'ctx>,
     variables: HashMap<String, (PointerValue<'ctx>, BasicTypeEnum<'ctx>, Type)>, // Added AST Type
     functions: HashMap<String, FunctionValue<'ctx>>,
+    function_params: HashMap<String, Vec<Parameter>>,  // Store function parameters for named args/defaults
     current_function: Option<FunctionValue<'ctx>>,
     class_types: HashMap<String, StructType<'ctx>>,
     class_fields: HashMap<String, Vec<String>>, // class_name -> field names in order
@@ -77,6 +78,7 @@ impl<'ctx> CodeGen<'ctx> {
             builder,
             variables: HashMap::new(),
             functions: HashMap::new(),
+            function_params: HashMap::new(),
             current_function: None,
             class_types: HashMap::new(),
             class_fields: HashMap::new(),
@@ -227,6 +229,14 @@ impl<'ctx> CodeGen<'ctx> {
                 .context
                 .ptr_type(AddressSpace::default())
                 .as_basic_type_enum(),
+            Type::Tuple(types) => {
+                // Tuples are represented as LLVM struct types
+                let field_types: Vec<BasicTypeEnum> = types
+                    .iter()
+                    .map(|t| self.get_llvm_type(t))
+                    .collect();
+                self.context.struct_type(&field_types, false).as_basic_type_enum()
+            }
         }
     }
 
@@ -235,6 +245,26 @@ impl<'ctx> CodeGen<'ctx> {
         // Note: Str excluded for now because string literals are global constants
         // We'll add proper string RC later (need to distinguish literals from allocated strings)
         matches!(ws_type, Type::List(_) | Type::Dict(_, _) | Type::Custom(_))
+    }
+
+    // Helper: Infer WadeScript type from LLVM type (used for tuple unpacking)
+    fn infer_ws_type_from_llvm(&self, llvm_type: BasicTypeEnum<'ctx>) -> Type {
+        match llvm_type {
+            BasicTypeEnum::IntType(t) => {
+                if t.get_bit_width() == 64 {
+                    Type::Int
+                } else if t.get_bit_width() == 1 {
+                    Type::Bool
+                } else {
+                    Type::Int // Default to Int for other int types
+                }
+            }
+            BasicTypeEnum::FloatType(_) => Type::Float,
+            BasicTypeEnum::PointerType(_) => Type::Str, // Assume pointer is string for now
+            BasicTypeEnum::StructType(_) => Type::Void, // Nested tuples not fully supported yet
+            BasicTypeEnum::ArrayType(_) => Type::Void,
+            BasicTypeEnum::VectorType(_) => Type::Void,
+        }
     }
 
     // Helper: Check if an expression evaluates to a string type
@@ -288,7 +318,7 @@ impl<'ctx> CodeGen<'ctx> {
     fn expression_escapes_variable(&self, expr: &Expression, var_name: &str) -> bool {
         match expr {
             // Function calls cause escape UNLESS the function is pure (Phase 4)
-            Expression::Call { callee, args, line: _ } => {
+            Expression::Call { callee, args, line: _, .. } => {
                 // Check if this is a known pure function
                 let is_pure = if let Expression::Variable(func_name) = &**callee {
                     self.pure_functions.contains(func_name)
@@ -1110,6 +1140,16 @@ impl<'ctx> CodeGen<'ctx> {
         let str_char_at_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
         let str_char_at_fn = self.module.add_function("str_char_at", str_char_at_type, None);
         self.functions.insert("str_char_at".to_string(), str_char_at_fn);
+
+        // list_slice_i64(list_ptr, start, end, step) -> ptr (returns new list)
+        let list_slice_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into(), i64_type.into()], false);
+        let list_slice_fn = self.module.add_function("list_slice_i64", list_slice_type, None);
+        self.functions.insert("list_slice_i64".to_string(), list_slice_fn);
+
+        // str_slice(str_ptr, start, end, step) -> ptr (returns new string)
+        let str_slice_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into(), i64_type.into()], false);
+        let str_slice_fn = self.module.add_function("str_slice", str_slice_type, None);
+        self.functions.insert("str_slice".to_string(), str_slice_fn);
     }
 
     fn declare_io_functions(&mut self) {
@@ -1427,7 +1467,10 @@ impl<'ctx> CodeGen<'ctx> {
                 };
 
                 let function = self.module.add_function(&mangled_name, fn_type, None);
-                self.functions.insert(function_key, function);
+                self.functions.insert(function_key.clone(), function);
+
+                // Store function parameters for named args/defaults handling
+                self.function_params.insert(function_key, params.clone());
 
                 // Create debug info for this function
                 let di_file = self.compile_unit.get_file();
@@ -2242,6 +2285,34 @@ impl<'ctx> CodeGen<'ctx> {
                 // Imports are already processed at load time, skip them
                 Ok(())
             }
+
+            Statement::TupleUnpack { names, value } => {
+                // Compile the tuple expression
+                let tuple_value = self.compile_expression(value)?;
+
+                // For each name, extract the corresponding element and create a variable
+                for (i, name) in names.iter().enumerate() {
+                    // Extract the element from the struct
+                    let element_value = self.builder
+                        .build_extract_value(tuple_value.into_struct_value(), i as u32, &format!("tuple_elem_{}", i))
+                        .unwrap();
+
+                    // Create alloca for the variable
+                    let elem_type = element_value.get_type();
+                    let ptr = self.builder.build_alloca(elem_type, name).unwrap();
+
+                    // Store the extracted value
+                    self.builder.build_store(ptr, element_value).unwrap();
+
+                    // Get the WadeScript type - infer from the LLVM type
+                    let ws_type = self.infer_ws_type_from_llvm(elem_type);
+
+                    // Add to variables table
+                    self.variables.insert(name.clone(), (ptr, elem_type, ws_type));
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -2714,7 +2785,7 @@ impl<'ctx> CodeGen<'ctx> {
                 }
             }
 
-            Expression::Call { callee, args, line } => {
+            Expression::Call { callee, args, named_args, line } => {
                 // Set debug location for this call
                 let scope = if let Some(func_scope) = self.current_debug_scope {
                     func_scope.as_debug_info_scope()
@@ -2840,10 +2911,49 @@ impl<'ctx> CodeGen<'ctx> {
                         return Err(format!("Undefined function '{}'", func_name));
                     };
 
+                    // Build argument list, handling named args and defaults
                     let mut arg_values: Vec<BasicMetadataValueEnum> = Vec::new();
-                    for arg in args {
-                        let arg_val = self.compile_expression(arg)?;
-                        arg_values.push(arg_val.into());
+
+                    if let Some(params) = self.function_params.get(func_name).cloned() {
+                        // User-defined function with param info
+                        let mut final_args: Vec<Option<BasicValueEnum>> = vec![None; params.len()];
+
+                        // Fill in positional arguments
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_val = self.compile_expression(arg)?;
+                            final_args[i] = Some(arg_val);
+                        }
+
+                        // Fill in named arguments
+                        for (name, value) in named_args {
+                            if let Some(idx) = params.iter().position(|p| &p.name == name) {
+                                let arg_val = self.compile_expression(value)?;
+                                final_args[idx] = Some(arg_val);
+                            }
+                        }
+
+                        // Fill in defaults for missing arguments
+                        for (i, param) in params.iter().enumerate() {
+                            if final_args[i].is_none() {
+                                if let Some(ref default_expr) = param.default_value {
+                                    let default_val = self.compile_expression(default_expr)?;
+                                    final_args[i] = Some(default_val);
+                                }
+                            }
+                        }
+
+                        // Convert to arg_values
+                        for arg_opt in final_args {
+                            if let Some(val) = arg_opt {
+                                arg_values.push(val.into());
+                            }
+                        }
+                    } else {
+                        // Built-in function - just use positional args
+                        for arg in args {
+                            let arg_val = self.compile_expression(arg)?;
+                            arg_values.push(arg_val.into());
+                        }
                     }
 
                     let call_site_value = self
@@ -3397,6 +3507,94 @@ impl<'ctx> CodeGen<'ctx> {
                 }
 
                 Ok(result_str.as_basic_value_enum())
+            }
+
+            Expression::TupleLiteral { elements } => {
+                // Compile each element
+                let mut element_values: Vec<BasicValueEnum> = Vec::new();
+                for elem in elements {
+                    element_values.push(self.compile_expression(elem)?);
+                }
+
+                // Build the struct type from element types
+                let field_types: Vec<BasicTypeEnum> = element_values
+                    .iter()
+                    .map(|v| v.get_type())
+                    .collect();
+                let struct_type = self.context.struct_type(&field_types, false);
+
+                // Build the struct value
+                let mut struct_value = struct_type.get_undef();
+                for (i, value) in element_values.iter().enumerate() {
+                    struct_value = self.builder
+                        .build_insert_value(struct_value, *value, i as u32, &format!("tuple_insert_{}", i))
+                        .unwrap()
+                        .into_struct_value();
+                }
+
+                Ok(struct_value.as_basic_value_enum())
+            }
+
+            Expression::TupleIndex { tuple, index, line: _ } => {
+                // Compile the tuple expression
+                let tuple_value = self.compile_expression(tuple)?;
+
+                // Extract the element at the given index
+                let element = self.builder
+                    .build_extract_value(tuple_value.into_struct_value(), *index as u32, &format!("tuple_get_{}", index))
+                    .unwrap();
+
+                Ok(element)
+            }
+
+            Expression::Slice { object, start, end, step, line: _ } => {
+                let i64_type = self.context.i64_type();
+
+                // Compile the object
+                let obj_val = self.compile_expression(object)?;
+
+                // Determine if this is a string or list slice
+                let is_string = self.is_string_expression(object);
+
+                // Compile start, end, step (use -1 for None start/end, 0 for None step)
+                let start_val = if let Some(s) = start {
+                    self.compile_expression(s)?
+                } else {
+                    i64_type.const_int((-1i64) as u64, true).as_basic_value_enum()
+                };
+
+                let end_val = if let Some(e) = end {
+                    self.compile_expression(e)?
+                } else {
+                    i64_type.const_int((-1i64) as u64, true).as_basic_value_enum()
+                };
+
+                let step_val = if let Some(st) = step {
+                    self.compile_expression(st)?
+                } else {
+                    i64_type.const_int(0, false).as_basic_value_enum()
+                };
+
+                // Call the appropriate slice function
+                let slice_fn = if is_string {
+                    self.functions.get("str_slice").unwrap()
+                } else {
+                    self.functions.get("list_slice_i64").unwrap()
+                };
+
+                let result = self
+                    .builder
+                    .build_call(
+                        *slice_fn,
+                        &[obj_val.into(), start_val.into(), end_val.into(), step_val.into()],
+                        "slice_result",
+                    )
+                    .unwrap()
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+
+                Ok(result)
             }
         }
     }

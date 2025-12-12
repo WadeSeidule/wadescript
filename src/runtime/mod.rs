@@ -7,6 +7,8 @@ pub mod string;
 pub mod rc;
 pub mod io;
 pub mod exceptions;
+pub mod cli;
+pub mod http;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;

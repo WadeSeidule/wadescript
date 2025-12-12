@@ -125,6 +125,84 @@ pub extern "C" fn list_set_i64(list: *mut List, index: i64, value: i64) {
     }
 }
 
+/// Slice a list and return a new list
+/// start: -1 means from beginning (0)
+/// end: -1 means to end (length)
+/// step: 0 means default step (1)
+#[no_mangle]
+pub extern "C" fn list_slice_i64(list: *const List, start: i64, end: i64, step: i64) -> *mut List {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List slice error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &*list;
+        let len = list_ref.length;
+
+        // Determine actual start, end, step values
+        let actual_step = if step == 0 { 1 } else { step };
+
+        // Handle negative indices and defaults
+        let (actual_start, actual_end) = if actual_step > 0 {
+            // Forward iteration
+            let s = if start == -1 { 0 } else if start < 0 { (len + start).max(0) } else { start.min(len) };
+            let e = if end == -1 { len } else if end < 0 { (len + end).max(0) } else { end.min(len) };
+            (s, e)
+        } else {
+            // Backward iteration (negative step)
+            let s = if start == -1 { len - 1 } else if start < 0 { len + start } else { start.min(len - 1) };
+            let e = if end == -1 { -1 } else if end < 0 { len + end } else { end };
+            (s, e)
+        };
+
+        // Calculate result size
+        let result_size = if actual_step > 0 {
+            if actual_start >= actual_end { 0 } else { ((actual_end - actual_start - 1) / actual_step + 1) as usize }
+        } else {
+            if actual_start <= actual_end { 0 } else { ((actual_start - actual_end - 1) / (-actual_step) + 1) as usize }
+        };
+
+        // Allocate new list
+        let layout = Layout::new::<List>();
+        let new_list = alloc(layout) as *mut List;
+
+        if result_size == 0 {
+            (*new_list).data = std::ptr::null_mut();
+            (*new_list).length = 0;
+            (*new_list).capacity = 0;
+        } else {
+            // Allocate data array
+            let data_layout = Layout::array::<i64>(result_size).unwrap();
+            let new_data = alloc(data_layout) as *mut i64;
+
+            // Copy elements
+            let mut idx = actual_start;
+            let mut dest_idx = 0usize;
+
+            if actual_step > 0 {
+                while idx < actual_end && dest_idx < result_size {
+                    *new_data.add(dest_idx) = *list_ref.data.offset(idx as isize);
+                    idx += actual_step;
+                    dest_idx += 1;
+                }
+            } else {
+                while idx > actual_end && dest_idx < result_size {
+                    *new_data.add(dest_idx) = *list_ref.data.offset(idx as isize);
+                    idx += actual_step; // step is negative
+                    dest_idx += 1;
+                }
+            }
+
+            (*new_list).data = new_data;
+            (*new_list).length = dest_idx as i64;
+            (*new_list).capacity = result_size as i64;
+        }
+
+        new_list
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

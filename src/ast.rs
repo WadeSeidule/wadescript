@@ -13,6 +13,7 @@ pub enum Type {
     Dict(Box<Type>, Box<Type>),     // Dictionary: dict[str, int]
     Optional(Box<Type>),            // Nullable type: str? or Optional[str]
     Exception,                      // Exception object type
+    Tuple(Vec<Type>),               // Tuple type: (int, str, bool)
     Custom(String),
 }
 
@@ -29,6 +30,16 @@ impl fmt::Display for Type {
             Type::Dict(key_type, val_type) => write!(f, "dict[{}, {}]", key_type, val_type),
             Type::Optional(inner_type) => write!(f, "{}?", inner_type),
             Type::Exception => write!(f, "Exception"),
+            Type::Tuple(types) => {
+                write!(f, "(")?;
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", t)?;
+                }
+                write!(f, ")")
+            }
             Type::Custom(name) => write!(f, "{}", name),
         }
     }
@@ -105,6 +116,10 @@ pub enum Statement {
     Import {
         path: String,
     },
+    TupleUnpack {
+        names: Vec<String>,
+        value: Expression,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +133,7 @@ pub struct ExceptClause {
 pub struct Parameter {
     pub name: String,
     pub param_type: Type,
+    pub default_value: Option<Expression>,  // Default parameter value
 }
 
 /// Represents a decorator applied to a field (e.g., @arg, @option)
@@ -155,6 +171,7 @@ pub enum Expression {
     Call {
         callee: Box<Expression>,
         args: Vec<Expression>,
+        named_args: Vec<(String, Expression)>,  // Named arguments: (name, value) pairs
         line: usize,
     },
     MemberAccess {
@@ -193,6 +210,21 @@ pub enum Expression {
     FString {
         parts: Vec<String>,       // String parts between {}
         expressions: Vec<Expression>, // Expressions to interpolate
+    },
+    TupleLiteral {
+        elements: Vec<Expression>,
+    },
+    TupleIndex {
+        tuple: Box<Expression>,
+        index: usize,             // Compile-time index (0, 1, 2, etc.)
+        line: usize,
+    },
+    Slice {
+        object: Box<Expression>,
+        start: Option<Box<Expression>>,   // None = from beginning
+        end: Option<Box<Expression>>,     // None = to end
+        step: Option<Box<Expression>>,    // None = step of 1
+        line: usize,
     },
 }
 

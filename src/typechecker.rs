@@ -6,9 +6,18 @@ struct ClassInfo {
     field_map: HashMap<String, Type>, // Quick lookup for field access
 }
 
+/// Parameter info for type checking function calls with named args and defaults
+#[derive(Clone)]
+struct ParamInfo {
+    name: String,
+    param_type: Type,
+    has_default: bool,
+}
+
 pub struct TypeChecker {
     symbol_table: Vec<HashMap<String, Type>>,
     functions: HashMap<String, (Vec<Type>, Type)>,
+    function_params: HashMap<String, Vec<ParamInfo>>,  // Full param info for named args
     classes: HashMap<String, ClassInfo>,
     current_function_return_type: Option<Type>,
     modules: HashMap<String, Vec<String>>, // module_name -> function_names
@@ -62,6 +71,7 @@ impl TypeChecker {
         TypeChecker {
             symbol_table: vec![HashMap::new()],
             functions,
+            function_params: HashMap::new(),
             classes: HashMap::new(),
             current_function_return_type: None,
             modules: HashMap::new(),
@@ -151,9 +161,30 @@ impl TypeChecker {
                 return_type,
                 body,
             } => {
+                // Validate default parameters: params with defaults must come after those without
+                let mut seen_default = false;
+                for param in params {
+                    if param.default_value.is_some() {
+                        seen_default = true;
+                    } else if seen_default {
+                        return Err(format!(
+                            "In function '{}': parameter '{}' without default follows parameter with default",
+                            name, param.name
+                        ));
+                    }
+                }
+
                 let param_types: Vec<Type> = params.iter().map(|p| p.param_type.clone()).collect();
                 self.functions
                     .insert(name.clone(), (param_types, return_type.clone()));
+
+                // Store full parameter info for named args validation
+                let param_info: Vec<ParamInfo> = params.iter().map(|p| ParamInfo {
+                    name: p.name.clone(),
+                    param_type: p.param_type.clone(),
+                    has_default: p.default_value.is_some(),
+                }).collect();
+                self.function_params.insert(name.clone(), param_info);
 
                 self.enter_scope();
                 self.current_function_return_type = Some(return_type.clone());
@@ -394,6 +425,29 @@ impl TypeChecker {
                 self.check_expression(expr)?;
                 Ok(())
             }
+
+            Statement::TupleUnpack { names, value } => {
+                let value_type = self.check_expression(value)?;
+                if let Type::Tuple(types) = value_type {
+                    if names.len() != types.len() {
+                        return Err(format!(
+                            "Tuple unpacking mismatch: {} names but tuple has {} elements",
+                            names.len(),
+                            types.len()
+                        ));
+                    }
+                    // Add each name to the symbol table with its corresponding type
+                    for (name, ty) in names.iter().zip(types.iter()) {
+                        self.declare_variable(name.clone(), ty.clone());
+                    }
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot unpack non-tuple type {}",
+                        value_type
+                    ))
+                }
+            }
         }
     }
 
@@ -519,7 +573,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Call { callee, args, line: _ } => {
+            Expression::Call { callee, args, named_args, line: _ } => {
                 // Check if this is a module.function() call
                 if let Expression::MemberAccess { object, member } = &**callee {
                     if let Expression::Variable(module_name) = &**object {
@@ -604,29 +658,92 @@ impl TypeChecker {
                 // Regular function call
                 if let Expression::Variable(func_name) = &**callee {
                     if let Some((param_types, return_type)) = self.functions.get(func_name).cloned() {
-                        if args.len() != param_types.len() {
-                            return Err(format!(
-                                "Function '{}' expects {} arguments, got {}",
-                                func_name,
-                                param_types.len(),
-                                args.len()
-                            ));
-                        }
+                        // Get full parameter info if available (for named args support)
+                        if let Some(param_info) = self.function_params.get(func_name).cloned() {
+                            // Track which parameters have been provided
+                            let mut provided = vec![false; param_info.len()];
 
-                        for (i, arg) in args.iter().enumerate() {
-                            let arg_type = self.check_expression(arg)?;
-                            if !self.types_compatible(&param_types[i], &arg_type) {
+                            // Process positional arguments
+                            if args.len() > param_info.len() {
                                 return Err(format!(
-                                    "Argument {} of function '{}': expected {}, got {}",
-                                    i + 1,
-                                    func_name,
-                                    param_types[i],
-                                    arg_type
+                                    "Function '{}' takes at most {} arguments, got {}",
+                                    func_name, param_info.len(), args.len()
                                 ));
                             }
-                        }
 
-                        Ok(return_type)
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_type = self.check_expression(arg)?;
+                                if !self.types_compatible(&param_info[i].param_type, &arg_type) {
+                                    return Err(format!(
+                                        "Argument {} of function '{}': expected {}, got {}",
+                                        i + 1, func_name, param_info[i].param_type, arg_type
+                                    ));
+                                }
+                                provided[i] = true;
+                            }
+
+                            // Process named arguments
+                            for (name, value) in named_args {
+                                // Find parameter index by name
+                                let param_idx = param_info.iter().position(|p| &p.name == name);
+                                match param_idx {
+                                    Some(idx) => {
+                                        if provided[idx] {
+                                            return Err(format!(
+                                                "Function '{}': parameter '{}' specified multiple times",
+                                                func_name, name
+                                            ));
+                                        }
+                                        let arg_type = self.check_expression(value)?;
+                                        if !self.types_compatible(&param_info[idx].param_type, &arg_type) {
+                                            return Err(format!(
+                                                "Named argument '{}' of function '{}': expected {}, got {}",
+                                                name, func_name, param_info[idx].param_type, arg_type
+                                            ));
+                                        }
+                                        provided[idx] = true;
+                                    }
+                                    None => {
+                                        return Err(format!(
+                                            "Function '{}' has no parameter named '{}'",
+                                            func_name, name
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // Check all required parameters are provided
+                            for (i, info) in param_info.iter().enumerate() {
+                                if !provided[i] && !info.has_default {
+                                    return Err(format!(
+                                        "Function '{}': missing required argument '{}'",
+                                        func_name, info.name
+                                    ));
+                                }
+                            }
+
+                            Ok(return_type)
+                        } else {
+                            // No param info (builtin function) - use simple validation
+                            if args.len() != param_types.len() {
+                                return Err(format!(
+                                    "Function '{}' expects {} arguments, got {}",
+                                    func_name, param_types.len(), args.len()
+                                ));
+                            }
+
+                            for (i, arg) in args.iter().enumerate() {
+                                let arg_type = self.check_expression(arg)?;
+                                if !self.types_compatible(&param_types[i], &arg_type) {
+                                    return Err(format!(
+                                        "Argument {} of function '{}': expected {}, got {}",
+                                        i + 1, func_name, param_types[i], arg_type
+                                    ));
+                                }
+                            }
+
+                            Ok(return_type)
+                        }
                     } else {
                         Err(format!("Undefined function '{}'", func_name))
                     }
@@ -1032,6 +1149,84 @@ impl TypeChecker {
                 // F-strings always result in a string
                 Ok(Type::Str)
             }
+
+            Expression::TupleLiteral { elements } => {
+                let mut types = Vec::new();
+                for elem in elements {
+                    types.push(self.check_expression(elem)?);
+                }
+                Ok(Type::Tuple(types))
+            }
+
+            Expression::TupleIndex { tuple, index, line } => {
+                let tuple_type = self.check_expression(tuple)?;
+                if let Type::Tuple(types) = tuple_type {
+                    if *index < types.len() {
+                        Ok(types[*index].clone())
+                    } else {
+                        Err(format!(
+                            "Tuple index {} out of bounds (tuple has {} elements) at line {}",
+                            index,
+                            types.len(),
+                            line
+                        ))
+                    }
+                } else {
+                    Err(format!(
+                        "Cannot index non-tuple type {} at line {}",
+                        tuple_type, line
+                    ))
+                }
+            }
+
+            Expression::Slice { object, start, end, step, line: _ } => {
+                let obj_type = self.check_expression(object)?;
+
+                // Validate object is sliceable (list or str)
+                let result_type = match &obj_type {
+                    Type::List(elem_type) => Type::List(elem_type.clone()),
+                    Type::Str => Type::Str,
+                    _ => {
+                        return Err(format!(
+                            "Cannot slice type {}. Only list and str support slicing.",
+                            obj_type
+                        ));
+                    }
+                };
+
+                // Validate start, end, step are int if present
+                if let Some(start_expr) = start {
+                    let start_type = self.check_expression(start_expr)?;
+                    if start_type != Type::Int {
+                        return Err(format!(
+                            "Slice start must be int, got {}",
+                            start_type
+                        ));
+                    }
+                }
+
+                if let Some(end_expr) = end {
+                    let end_type = self.check_expression(end_expr)?;
+                    if end_type != Type::Int {
+                        return Err(format!(
+                            "Slice end must be int, got {}",
+                            end_type
+                        ));
+                    }
+                }
+
+                if let Some(step_expr) = step {
+                    let step_type = self.check_expression(step_expr)?;
+                    if step_type != Type::Int {
+                        return Err(format!(
+                            "Slice step must be int, got {}",
+                            step_type
+                        ));
+                    }
+                }
+
+                Ok(result_type)
+            }
         }
     }
 
@@ -1198,7 +1393,8 @@ def main() -> int {
 "#;
         let result = typecheck_source(source);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("expects 2 arguments"));
+        // With named args support, error says "missing required argument"
+        assert!(result.unwrap_err().contains("missing required argument"));
     }
 
     #[test]
@@ -1797,5 +1993,99 @@ class Args {
         let result = typecheck_source(source);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown decorator"));
+    }
+
+    #[test]
+    fn test_tuple_literal() {
+        let source = r#"
+def main() -> int {
+    point: (int, int) = (10, 20)
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_tuple_indexing() {
+        let source = r#"
+def main() -> int {
+    point: (int, int) = (10, 20)
+    x: int = point.0
+    y: int = point.1
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_tuple_index_out_of_bounds() {
+        let source = r#"
+def main() -> int {
+    point: (int, int) = (10, 20)
+    z: int = point.2
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("out of bounds"));
+    }
+
+    #[test]
+    fn test_tuple_unpacking() {
+        let source = r#"
+def main() -> int {
+    point: (int, int) = (10, 20)
+    x, y = point
+    z: int = x + y
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_tuple_unpacking_mismatch() {
+        let source = r#"
+def main() -> int {
+    point: (int, int) = (10, 20)
+    x, y, z = point
+    return 0
+}
+"#;
+        let result = typecheck_source(source);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("mismatch"));
+    }
+
+    #[test]
+    fn test_tuple_function_return() {
+        let source = r#"
+def get_point() -> (int, int) {
+    return (10, 20)
+}
+def main() -> int {
+    p: (int, int) = get_point()
+    x: int = p.0
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_tuple_mixed_types() {
+        let source = r#"
+def main() -> int {
+    data: (str, int, bool) = ("Alice", 30, True)
+    name: str = data.0
+    age: int = data.1
+    active: bool = data.2
+    return 0
+}
+"#;
+        assert!(typecheck_source(source).is_ok());
     }
 }

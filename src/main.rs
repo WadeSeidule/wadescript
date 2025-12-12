@@ -6,6 +6,7 @@ mod lsp;
 mod parser;
 mod repl;
 mod runtime;
+mod runtime_symbols;
 mod typechecker;
 
 use ast::{Program, Statement};

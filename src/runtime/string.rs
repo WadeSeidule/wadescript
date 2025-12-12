@@ -110,6 +110,68 @@ pub extern "C" fn str_char_at(s: *const u8, index: i64) -> *mut u8 {
     }
 }
 
+/// Slice a string and return a new string
+/// start: -1 means from beginning (0)
+/// end: -1 means to end (length)
+/// step: 0 means default step (1)
+#[no_mangle]
+pub extern "C" fn str_slice(s: *const u8, start: i64, end: i64, step: i64) -> *mut u8 {
+    unsafe {
+        if s.is_null() {
+            return ptr::null_mut();
+        }
+
+        let c_str = CStr::from_ptr(s as *const i8);
+        let rust_str = c_str.to_str().unwrap_or("");
+        let chars: Vec<char> = rust_str.chars().collect();
+        let len = chars.len() as i64;
+
+        // Determine actual step
+        let actual_step = if step == 0 { 1 } else { step };
+
+        // Handle negative indices and defaults
+        let (actual_start, actual_end) = if actual_step > 0 {
+            // Forward iteration
+            let s = if start == -1 { 0 } else if start < 0 { (len + start).max(0) } else { start.min(len) };
+            let e = if end == -1 { len } else if end < 0 { (len + end).max(0) } else { end.min(len) };
+            (s, e)
+        } else {
+            // Backward iteration (negative step)
+            let s = if start == -1 { len - 1 } else if start < 0 { len + start } else { start.min(len - 1) };
+            let e = if end == -1 { -1 } else if end < 0 { len + end } else { end };
+            (s, e)
+        };
+
+        // Collect characters based on slice
+        let mut result_chars: Vec<char> = Vec::new();
+        let mut idx = actual_start;
+
+        if actual_step > 0 {
+            while idx < actual_end && idx < len {
+                result_chars.push(chars[idx as usize]);
+                idx += actual_step;
+            }
+        } else {
+            while idx > actual_end && idx >= 0 {
+                result_chars.push(chars[idx as usize]);
+                idx += actual_step; // step is negative
+            }
+        }
+
+        let result_str: String = result_chars.into_iter().collect();
+
+        // Allocate new C string
+        let result_len = result_str.len();
+        let layout = Layout::array::<u8>(result_len + 1).unwrap();
+        let dest = alloc(layout);
+
+        ptr::copy_nonoverlapping(result_str.as_ptr(), dest, result_len);
+        *dest.add(result_len) = 0; // Null terminator
+
+        dest
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

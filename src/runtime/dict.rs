@@ -314,6 +314,66 @@ pub extern "C" fn dict_get_keys(dict: *const Dict) -> *mut super::list::List {
     }
 }
 
+/// Convert dict to string representation: {"key1": value1, "key2": value2}
+#[no_mangle]
+pub extern "C" fn dict_to_string(dict: *const Dict) -> *mut u8 {
+    use std::alloc::Layout;
+
+    unsafe {
+        if dict.is_null() {
+            // Return "{}" for null dict
+            let s = "{}";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        let dict_ref = &*dict;
+
+        if dict_ref.length == 0 {
+            // Return "{}" for empty dict
+            let s = "{}";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        // Build the string representation
+        let mut result = String::from("{");
+        let mut first = true;
+
+        // Iterate through all buckets
+        for i in 0..dict_ref.capacity {
+            let mut entry = *dict_ref.buckets.offset(i as isize);
+            while !entry.is_null() {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+
+                // Get key string
+                let key_cstr = CStr::from_ptr((*entry).key as *const i8);
+                let key_str = key_cstr.to_str().unwrap_or("");
+
+                result.push_str(&format!("\"{}\": {}", key_str, (*entry).value));
+                entry = (*entry).next;
+            }
+        }
+        result.push('}');
+
+        let len = result.len();
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout) as *mut u8;
+        ptr::copy_nonoverlapping(result.as_ptr(), dest, len);
+        *dest.add(len) = 0; // Null terminator
+        dest
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,6 +550,49 @@ mod tests {
             let key3 = CString::new("different").unwrap();
             let hash3 = hash_string(key3.as_ptr() as *const u8);
             assert_ne!(hash1, hash3);
+        }
+    }
+
+    #[test]
+    fn test_dict_to_string_empty() {
+        let dict = dict_create();
+        let result = dict_to_string(dict);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "{}");
+        }
+    }
+
+    #[test]
+    fn test_dict_to_string_single() {
+        let dict = dict_create();
+        let key = CString::new("name").unwrap();
+        dict_set(dict, key.as_ptr() as *const u8, 42);
+
+        let result = dict_to_string(dict);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "{\"name\": 42}");
+        }
+    }
+
+    #[test]
+    fn test_dict_to_string_multiple() {
+        let dict = dict_create();
+        let key1 = CString::new("a").unwrap();
+        let key2 = CString::new("b").unwrap();
+        dict_set(dict, key1.as_ptr() as *const u8, 1);
+        dict_set(dict, key2.as_ptr() as *const u8, 2);
+
+        let result = dict_to_string(dict);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            let s = cstr.to_str().unwrap();
+            // Order may vary, just check format
+            assert!(s.starts_with("{"));
+            assert!(s.ends_with("}"));
+            assert!(s.contains("\"a\": 1"));
+            assert!(s.contains("\"b\": 2"));
         }
     }
 }

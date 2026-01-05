@@ -688,6 +688,35 @@ impl TypeChecker {
                     }
                 }
 
+                // Check for special polymorphic built-in functions (str, print)
+                if let Expression::Variable(func_name) = &**callee {
+                    if func_name == "str" {
+                        // str() takes exactly 1 argument of any type, returns str
+                        if args.len() != 1 {
+                            return Err(format!("str() takes exactly 1 argument, got {}", args.len()));
+                        }
+                        if !named_args.is_empty() {
+                            return Err("str() does not accept named arguments".to_string());
+                        }
+                        // Type check the argument (any type is valid)
+                        self.check_expression(&args[0])?;
+                        return Ok(Type::Str);
+                    }
+
+                    if func_name == "print" {
+                        // print() takes exactly 1 argument of any type, returns void
+                        if args.len() != 1 {
+                            return Err(format!("print() takes exactly 1 argument, got {}", args.len()));
+                        }
+                        if !named_args.is_empty() {
+                            return Err("print() does not accept named arguments".to_string());
+                        }
+                        // Type check the argument (any type is valid)
+                        self.check_expression(&args[0])?;
+                        return Ok(Type::Void);
+                    }
+                }
+
                 // Check if this is a class constructor call
                 if let Expression::Variable(class_name) = &**callee {
                     if let Some(class_info) = self.classes.get(class_name) {

@@ -1237,6 +1237,12 @@ impl Parser {
                 self.consume(Token::RightBrace, "Expected '}' after dict pairs");
                 Expression::DictLiteral { pairs }
             }
+            // Handle str() as a function call (str is both a type keyword and a built-in function)
+            Token::StrType => {
+                self.advance();
+                // Treat as a variable named "str" which will be called as a function
+                Expression::Variable("str".to_string())
+            }
             _ => panic!("Unexpected token in expression: {:?}", self.peek()),
         }
     }

@@ -23,7 +23,9 @@ pub fn get_runtime_symbols() -> Vec<RuntimeSymbol> {
     // Import from each submodule explicitly
     use crate::runtime::list::{list_get_i64, list_push_i64, list_pop_i64, list_set_i64, list_slice_i64};
     use crate::runtime::dict::{dict_create, dict_set, dict_get, dict_has};
-    use crate::runtime::string::{str_length, str_upper, str_lower, str_contains, str_char_at, str_slice};
+    use crate::runtime::string::{str_length, str_upper, str_lower, str_contains, str_char_at, str_slice, int_to_string, float_to_string, bool_to_string};
+    use crate::runtime::list::list_to_string;
+    use crate::runtime::dict::dict_to_string;
     use crate::runtime::rc::{rc_alloc, rc_retain, rc_release, rc_get_count, rc_is_valid};
     use crate::runtime::io::{file_open, file_read, file_read_line, file_write, file_close, file_exists};
     use crate::runtime::cli::{
@@ -63,6 +65,13 @@ pub fn get_runtime_symbols() -> Vec<RuntimeSymbol> {
         RuntimeSymbol { name: "str_contains", addr: str_contains as usize },
         RuntimeSymbol { name: "str_char_at", addr: str_char_at as usize },
         RuntimeSymbol { name: "str_slice", addr: str_slice as usize },
+
+        // Type conversion functions (for str()/print())
+        RuntimeSymbol { name: "int_to_string", addr: int_to_string as usize },
+        RuntimeSymbol { name: "float_to_string", addr: float_to_string as usize },
+        RuntimeSymbol { name: "bool_to_string", addr: bool_to_string as usize },
+        RuntimeSymbol { name: "list_to_string", addr: list_to_string as usize },
+        RuntimeSymbol { name: "dict_to_string", addr: dict_to_string as usize },
 
         // RC operations
         RuntimeSymbol { name: "rc_alloc", addr: rc_alloc as usize },
@@ -122,10 +131,12 @@ pub fn get_runtime_symbols() -> Vec<RuntimeSymbol> {
 
         // Standard C library functions
         RuntimeSymbol { name: "printf", addr: libc::printf as usize },
+        RuntimeSymbol { name: "sprintf", addr: libc::sprintf as usize },
         RuntimeSymbol { name: "malloc", addr: libc::malloc as usize },
         RuntimeSymbol { name: "free", addr: libc::free as usize },
         RuntimeSymbol { name: "memcpy", addr: libc::memcpy as usize },
         RuntimeSymbol { name: "strlen", addr: libc::strlen as usize },
+        RuntimeSymbol { name: "strcat", addr: libc::strcat as usize },
         RuntimeSymbol { name: "exit", addr: libc::exit as usize },
     ]
 }

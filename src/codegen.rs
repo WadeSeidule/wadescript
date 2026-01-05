@@ -314,6 +314,275 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    /// Get the WadeScript type of an expression (for str()/print() compile-time dispatch)
+    fn get_expression_type(&self, expr: &Expression) -> Option<Type> {
+        match expr {
+            Expression::IntLiteral(_) => Some(Type::Int),
+            Expression::FloatLiteral(_) => Some(Type::Float),
+            Expression::StringLiteral(_) => Some(Type::Str),
+            Expression::BoolLiteral(_) => Some(Type::Bool),
+            Expression::Variable(name) => {
+                self.variables.get(name).map(|(_, _, ast_type)| ast_type.clone())
+            }
+            Expression::ListLiteral { elements } => {
+                // Infer element type from first element, default to Int
+                if let Some(first) = elements.first() {
+                    let elem_type = self.get_expression_type(first).unwrap_or(Type::Int);
+                    Some(Type::List(Box::new(elem_type)))
+                } else {
+                    Some(Type::List(Box::new(Type::Int)))
+                }
+            }
+            Expression::DictLiteral { pairs } => {
+                // Infer key/value types from first pair, default to Str/Int
+                if let Some((k, v)) = pairs.first() {
+                    let kt = self.get_expression_type(k).unwrap_or(Type::Str);
+                    let vt = self.get_expression_type(v).unwrap_or(Type::Int);
+                    Some(Type::Dict(Box::new(kt), Box::new(vt)))
+                } else {
+                    Some(Type::Dict(Box::new(Type::Str), Box::new(Type::Int)))
+                }
+            }
+            Expression::MemberAccess { object, member } => {
+                if let Expression::Variable(var_name) = &**object {
+                    if let Some((_, _, Type::Custom(class_name))) = self.variables.get(var_name) {
+                        if let Some(field_names) = self.class_fields.get(class_name) {
+                            if let Some(idx) = field_names.iter().position(|f| f == member) {
+                                if let Some(field_types) = self.class_field_types.get(class_name) {
+                                    return field_types.get(idx).cloned();
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            Expression::FString { .. } => Some(Type::Str),
+            Expression::Call { callee, .. } => {
+                if let Expression::Variable(func_name) = &**callee {
+                    if func_name == "str" {
+                        return Some(Type::Str);
+                    }
+                    // Could look up function return type here
+                }
+                None
+            }
+            Expression::TupleLiteral { elements } => {
+                let types: Vec<Type> = elements.iter()
+                    .filter_map(|e| self.get_expression_type(e))
+                    .collect();
+                if types.len() == elements.len() {
+                    Some(Type::Tuple(types))
+                } else {
+                    None
+                }
+            }
+            Expression::Slice { object, .. } => {
+                // Slicing a list returns a list, slicing a string returns a string
+                self.get_expression_type(object)
+            }
+            _ => None,
+        }
+    }
+
+    /// Convert an expression to its string representation
+    fn compile_to_string(&mut self, expr: &Expression) -> Result<BasicValueEnum<'ctx>, String> {
+        let expr_type = self.get_expression_type(expr);
+        let arg_val = self.compile_expression(expr)?;
+
+        match expr_type {
+            Some(Type::Str) => {
+                // String: return as-is
+                Ok(arg_val)
+            }
+            Some(Type::Int) => {
+                let int_to_str = self.functions.get("int_to_string").unwrap();
+                let result = self.builder
+                    .build_call(*int_to_str, &[arg_val.into()], "int_str")
+                    .unwrap()
+                    .try_as_basic_value().left().unwrap();
+                Ok(result)
+            }
+            Some(Type::Float) => {
+                let float_to_str = self.functions.get("float_to_string").unwrap();
+                let result = self.builder
+                    .build_call(*float_to_str, &[arg_val.into()], "float_str")
+                    .unwrap()
+                    .try_as_basic_value().left().unwrap();
+                Ok(result)
+            }
+            Some(Type::Bool) => {
+                let bool_to_str = self.functions.get("bool_to_string").unwrap();
+                let result = self.builder
+                    .build_call(*bool_to_str, &[arg_val.into()], "bool_str")
+                    .unwrap()
+                    .try_as_basic_value().left().unwrap();
+                Ok(result)
+            }
+            Some(Type::List(_)) => {
+                let list_to_str = self.functions.get("list_to_string").unwrap();
+                let result = self.builder
+                    .build_call(*list_to_str, &[arg_val.into()], "list_str")
+                    .unwrap()
+                    .try_as_basic_value().left().unwrap();
+                Ok(result)
+            }
+            Some(Type::Dict(_, _)) => {
+                let dict_to_str = self.functions.get("dict_to_string").unwrap();
+                let result = self.builder
+                    .build_call(*dict_to_str, &[arg_val.into()], "dict_str")
+                    .unwrap()
+                    .try_as_basic_value().left().unwrap();
+                Ok(result)
+            }
+            Some(Type::Custom(class_name)) => {
+                self.compile_class_to_string(&class_name, arg_val)
+            }
+            _ => {
+                // For unknown types, try to use the LLVM type to determine conversion
+                if arg_val.is_int_value() {
+                    // Could be int or bool - check bit width
+                    let int_val = arg_val.into_int_value();
+                    if int_val.get_type().get_bit_width() == 1 {
+                        // Bool
+                        let bool_to_str = self.functions.get("bool_to_string").unwrap();
+                        let result = self.builder
+                            .build_call(*bool_to_str, &[arg_val.into()], "bool_str")
+                            .unwrap()
+                            .try_as_basic_value().left().unwrap();
+                        Ok(result)
+                    } else {
+                        // Int
+                        let int_to_str = self.functions.get("int_to_string").unwrap();
+                        let result = self.builder
+                            .build_call(*int_to_str, &[arg_val.into()], "int_str")
+                            .unwrap()
+                            .try_as_basic_value().left().unwrap();
+                        Ok(result)
+                    }
+                } else if arg_val.is_float_value() {
+                    let float_to_str = self.functions.get("float_to_string").unwrap();
+                    let result = self.builder
+                        .build_call(*float_to_str, &[arg_val.into()], "float_str")
+                        .unwrap()
+                        .try_as_basic_value().left().unwrap();
+                    Ok(result)
+                } else if arg_val.is_pointer_value() {
+                    // Assume string pointer
+                    Ok(arg_val)
+                } else {
+                    Err(format!("str() not implemented for expression type {:?}", expr_type))
+                }
+            }
+        }
+    }
+
+    /// Generate inline code for class string representation: ClassName(field1=val1, field2=val2)
+    fn compile_class_to_string(
+        &mut self,
+        class_name: &str,
+        obj_val: BasicValueEnum<'ctx>
+    ) -> Result<BasicValueEnum<'ctx>, String> {
+        let struct_type = self.class_types.get(class_name)
+            .ok_or_else(|| format!("Unknown class: {}", class_name))?
+            .clone();
+        let field_names = self.class_fields.get(class_name)
+            .ok_or_else(|| format!("Unknown class fields: {}", class_name))?
+            .clone();
+        let field_types = self.class_field_types.get(class_name)
+            .ok_or_else(|| format!("Unknown class field types: {}", class_name))?
+            .clone();
+
+        let obj_ptr = obj_val.into_pointer_value();
+        let i64_type = self.context.i64_type();
+
+        // Allocate result buffer (1KB)
+        let malloc_fn = *self.functions.get("malloc").unwrap();
+        let buffer = self.builder
+            .build_call(malloc_fn, &[i64_type.const_int(1024, false).into()], "class_str")
+            .unwrap()
+            .try_as_basic_value().left().unwrap()
+            .into_pointer_value();
+
+        // Initialize with empty string
+        self.builder.build_store(buffer, i64_type.const_int(0, false)).unwrap();
+
+        let strcat_fn = *self.functions.get("strcat").unwrap();
+        let sprintf_fn = *self.functions.get("sprintf").unwrap();
+
+        // Add class name and opening paren
+        let header = self.builder.build_global_string_ptr(&format!("{}(", class_name), "class_header").unwrap();
+        self.builder.build_call(strcat_fn, &[buffer.into(), header.as_pointer_value().into()], "").unwrap();
+
+        // For each field, add "field_name=" + str(field_value)
+        for (i, (field_name, field_type)) in field_names.iter().zip(field_types.iter()).enumerate() {
+            // Add comma separator (except for first field)
+            if i > 0 {
+                let comma = self.builder.build_global_string_ptr(", ", "comma").unwrap();
+                self.builder.build_call(strcat_fn, &[buffer.into(), comma.as_pointer_value().into()], "").unwrap();
+            }
+
+            // Add "field_name="
+            let field_prefix = self.builder.build_global_string_ptr(&format!("{}=", field_name), "field_prefix").unwrap();
+            self.builder.build_call(strcat_fn, &[buffer.into(), field_prefix.as_pointer_value().into()], "").unwrap();
+
+            // Get field value
+            let field_ptr = self.builder
+                .build_struct_gep(struct_type, obj_ptr, i as u32, field_name)
+                .unwrap();
+            let field_llvm_type = struct_type.get_field_type_at_index(i as u32).unwrap();
+            let field_val = self.builder.build_load(field_llvm_type, field_ptr, field_name).unwrap();
+
+            // Allocate temp buffer for formatted value
+            let temp_buffer = self.builder
+                .build_call(malloc_fn, &[i64_type.const_int(256, false).into()], "temp_buf")
+                .unwrap()
+                .try_as_basic_value().left().unwrap()
+                .into_pointer_value();
+
+            // Convert field to string based on type
+            match field_type {
+                Type::Int => {
+                    let fmt = self.builder.build_global_string_ptr("%lld", "int_fmt").unwrap();
+                    self.builder.build_call(sprintf_fn, &[temp_buffer.into(), fmt.as_pointer_value().into(), field_val.into()], "").unwrap();
+                }
+                Type::Float => {
+                    let fmt = self.builder.build_global_string_ptr("%g", "float_fmt").unwrap();
+                    self.builder.build_call(sprintf_fn, &[temp_buffer.into(), fmt.as_pointer_value().into(), field_val.into()], "").unwrap();
+                }
+                Type::Bool => {
+                    let bool_to_str = self.functions.get("bool_to_string").unwrap();
+                    let bool_str = self.builder
+                        .build_call(*bool_to_str, &[field_val.into()], "bool_str")
+                        .unwrap()
+                        .try_as_basic_value().left().unwrap();
+                    let fmt = self.builder.build_global_string_ptr("%s", "str_fmt").unwrap();
+                    self.builder.build_call(sprintf_fn, &[temp_buffer.into(), fmt.as_pointer_value().into(), bool_str.into()], "").unwrap();
+                }
+                Type::Str => {
+                    // Quote strings in the repr
+                    let fmt = self.builder.build_global_string_ptr("\"%s\"", "quoted_str_fmt").unwrap();
+                    self.builder.build_call(sprintf_fn, &[temp_buffer.into(), fmt.as_pointer_value().into(), field_val.into()], "").unwrap();
+                }
+                _ => {
+                    // For complex types, just show placeholder
+                    let placeholder = self.builder.build_global_string_ptr("<...>", "placeholder").unwrap();
+                    let fmt = self.builder.build_global_string_ptr("%s", "str_fmt").unwrap();
+                    self.builder.build_call(sprintf_fn, &[temp_buffer.into(), fmt.as_pointer_value().into(), placeholder.as_pointer_value().into()], "").unwrap();
+                }
+            }
+
+            // Concatenate field string
+            self.builder.build_call(strcat_fn, &[buffer.into(), temp_buffer.into()], "").unwrap();
+        }
+
+        // Add closing paren
+        let footer = self.builder.build_global_string_ptr(")", "class_footer").unwrap();
+        self.builder.build_call(strcat_fn, &[buffer.into(), footer.as_pointer_value().into()], "").unwrap();
+
+        Ok(buffer.as_basic_value_enum())
+    }
+
     // OPTIMIZATION Phase 3+4: Check if expression causes variable to escape
     fn expression_escapes_variable(&self, expr: &Expression, var_name: &str) -> bool {
         match expr {
@@ -1137,6 +1406,34 @@ impl<'ctx> CodeGen<'ctx> {
         let str_slice_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into(), i64_type.into()], false);
         let str_slice_fn = self.module.add_function("str_slice", str_slice_type, None);
         self.functions.insert("str_slice".to_string(), str_slice_fn);
+
+        // Type conversion functions for str()/print()
+        // int_to_string(value: i64) -> ptr
+        let int_to_string_type = ptr_type.fn_type(&[i64_type.into()], false);
+        let int_to_string_fn = self.module.add_function("int_to_string", int_to_string_type, None);
+        self.functions.insert("int_to_string".to_string(), int_to_string_fn);
+
+        // float_to_string(value: f64) -> ptr
+        let f64_type = self.context.f64_type();
+        let float_to_string_type = ptr_type.fn_type(&[f64_type.into()], false);
+        let float_to_string_fn = self.module.add_function("float_to_string", float_to_string_type, None);
+        self.functions.insert("float_to_string".to_string(), float_to_string_fn);
+
+        // bool_to_string(value: i1) -> ptr
+        let bool_type = self.context.bool_type();
+        let bool_to_string_type = ptr_type.fn_type(&[bool_type.into()], false);
+        let bool_to_string_fn = self.module.add_function("bool_to_string", bool_to_string_type, None);
+        self.functions.insert("bool_to_string".to_string(), bool_to_string_fn);
+
+        // list_to_string(list_ptr: ptr) -> ptr
+        let list_to_string_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let list_to_string_fn = self.module.add_function("list_to_string", list_to_string_type, None);
+        self.functions.insert("list_to_string".to_string(), list_to_string_fn);
+
+        // dict_to_string(dict_ptr: ptr) -> ptr
+        let dict_to_string_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let dict_to_string_fn = self.module.add_function("dict_to_string", dict_to_string_type, None);
+        self.functions.insert("dict_to_string".to_string(), dict_to_string_fn);
     }
 
     fn declare_io_functions(&mut self) {
@@ -2935,6 +3232,24 @@ impl<'ctx> CodeGen<'ctx> {
                         // After loop
                         self.builder.position_at_end(loop_exit);
                         return Ok(list_ptr.as_basic_value_enum());
+                    }
+
+                    // Handle str() - polymorphic conversion to string
+                    if func_name == "str" {
+                        let arg_expr = &args[0];
+                        return self.compile_to_string(arg_expr);
+                    }
+
+                    // Handle print() - generic print with newline
+                    if func_name == "print" {
+                        let arg_expr = &args[0];
+                        let str_val = self.compile_to_string(arg_expr)?;
+
+                        // Call print_str with the string
+                        let print_str_fn = self.functions.get("print_str").unwrap();
+                        self.builder.build_call(*print_str_fn, &[str_val.into()], "").unwrap();
+
+                        return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
                     }
 
                     let function = if let Some(&func) = self.functions.get(func_name) {

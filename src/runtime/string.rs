@@ -172,6 +172,51 @@ pub extern "C" fn str_slice(s: *const u8, start: i64, end: i64, step: i64) -> *m
     }
 }
 
+/// Convert int to string
+#[no_mangle]
+pub extern "C" fn int_to_string(value: i64) -> *mut u8 {
+    let s = value.to_string();
+    let len = s.len();
+
+    unsafe {
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout);
+        ptr::copy_nonoverlapping(s.as_ptr(), dest, len);
+        *dest.add(len) = 0; // Null terminator
+        dest
+    }
+}
+
+/// Convert float to string
+#[no_mangle]
+pub extern "C" fn float_to_string(value: f64) -> *mut u8 {
+    let s = format!("{}", value);
+    let len = s.len();
+
+    unsafe {
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout);
+        ptr::copy_nonoverlapping(s.as_ptr(), dest, len);
+        *dest.add(len) = 0; // Null terminator
+        dest
+    }
+}
+
+/// Convert bool to string ("True" or "False")
+#[no_mangle]
+pub extern "C" fn bool_to_string(value: bool) -> *mut u8 {
+    let s = if value { "True" } else { "False" };
+    let len = s.len();
+
+    unsafe {
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout);
+        ptr::copy_nonoverlapping(s.as_ptr(), dest, len);
+        *dest.add(len) = 0; // Null terminator
+        dest
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +438,53 @@ mod tests {
         for (text, expected_len) in strings {
             let s = CString::new(text).unwrap();
             assert_eq!(str_length(s.as_ptr() as *const u8), expected_len);
+        }
+    }
+
+    #[test]
+    fn test_int_to_string() {
+        unsafe {
+            let result = int_to_string(42);
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(result_cstr.to_str().unwrap(), "42");
+
+            let result_neg = int_to_string(-123);
+            let result_neg_cstr = CStr::from_ptr(result_neg as *const i8);
+            assert_eq!(result_neg_cstr.to_str().unwrap(), "-123");
+
+            let result_zero = int_to_string(0);
+            let result_zero_cstr = CStr::from_ptr(result_zero as *const i8);
+            assert_eq!(result_zero_cstr.to_str().unwrap(), "0");
+        }
+    }
+
+    #[test]
+    fn test_float_to_string() {
+        unsafe {
+            let result = float_to_string(3.14);
+            let result_cstr = CStr::from_ptr(result as *const i8);
+            assert!(result_cstr.to_str().unwrap().starts_with("3.14"));
+
+            let result_int = float_to_string(42.0);
+            let result_int_cstr = CStr::from_ptr(result_int as *const i8);
+            assert_eq!(result_int_cstr.to_str().unwrap(), "42");
+
+            let result_neg = float_to_string(-1.5);
+            let result_neg_cstr = CStr::from_ptr(result_neg as *const i8);
+            assert_eq!(result_neg_cstr.to_str().unwrap(), "-1.5");
+        }
+    }
+
+    #[test]
+    fn test_bool_to_string() {
+        unsafe {
+            let result_true = bool_to_string(true);
+            let result_true_cstr = CStr::from_ptr(result_true as *const i8);
+            assert_eq!(result_true_cstr.to_str().unwrap(), "True");
+
+            let result_false = bool_to_string(false);
+            let result_false_cstr = CStr::from_ptr(result_false as *const i8);
+            assert_eq!(result_false_cstr.to_str().unwrap(), "False");
         }
     }
 }

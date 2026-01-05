@@ -203,6 +203,55 @@ pub extern "C" fn list_slice_i64(list: *const List, start: i64, end: i64, step: 
     }
 }
 
+/// Convert list to string representation: [elem1, elem2, ...]
+#[no_mangle]
+pub extern "C" fn list_to_string(list: *const List) -> *mut u8 {
+    use std::alloc::Layout;
+
+    unsafe {
+        if list.is_null() {
+            // Return "[]" for null list
+            let s = "[]";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            std::ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        let list_ref = &*list;
+
+        if list_ref.length == 0 {
+            // Return "[]" for empty list
+            let s = "[]";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            std::ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        // Build the string representation
+        let mut result = String::from("[");
+
+        for i in 0..list_ref.length {
+            if i > 0 {
+                result.push_str(", ");
+            }
+            let val = *list_ref.data.offset(i as isize);
+            result.push_str(&val.to_string());
+        }
+        result.push(']');
+
+        let len = result.len();
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout) as *mut u8;
+        std::ptr::copy_nonoverlapping(result.as_ptr(), dest, len);
+        *dest.add(len) = 0; // Null terminator
+        dest
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +360,44 @@ mod tests {
         // Verify all elements
         for i in 0..100 {
             assert_eq!(list_get_i64(list_ptr, i), i);
+        }
+    }
+
+    #[test]
+    fn test_list_to_string() {
+        use std::ffi::CStr;
+
+        // Test empty list
+        let mut empty_list = create_test_list();
+        let empty_ptr = &mut *empty_list as *mut List;
+        let empty_str = list_to_string(empty_ptr);
+        unsafe {
+            let cstr = CStr::from_ptr(empty_str as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "[]");
+        }
+
+        // Test list with elements
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+        list_push_i64(list_ptr, 1);
+        list_push_i64(list_ptr, 2);
+        list_push_i64(list_ptr, 3);
+
+        let result = list_to_string(list_ptr);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "[1, 2, 3]");
+        }
+
+        // Test single element
+        let mut single = create_test_list();
+        let single_ptr = &mut *single as *mut List;
+        list_push_i64(single_ptr, 42);
+
+        let single_str = list_to_string(single_ptr);
+        unsafe {
+            let cstr = CStr::from_ptr(single_str as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "[42]");
         }
     }
 }

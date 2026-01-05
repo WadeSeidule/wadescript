@@ -75,6 +75,17 @@ pub fn get_builtin_functions() -> Vec<BuiltinFunction> {
             signature: "(value: bool) -> void",
             description: "Print a boolean to stdout",
         },
+        // Generic print and conversion functions
+        BuiltinFunction {
+            name: "print",
+            signature: "(value: any) -> void",
+            description: "Print any value to stdout with a trailing newline",
+        },
+        BuiltinFunction {
+            name: "str",
+            signature: "(value: any) -> str",
+            description: "Convert any value to its string representation",
+        },
         // Utility functions
         BuiltinFunction {
             name: "range",

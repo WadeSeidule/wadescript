@@ -1,5 +1,8 @@
 ---
-description: Review recent code changes for correctness, consistency, and missing pieces
+description: >
+  Review recent code changes for correctness, consistency, and missing pieces.
+  Use when asked to review code, check work, audit changes, or after completing
+  a multi-file implementation to verify nothing was missed.
 user-invocable: true
 allowed-tools: Bash, Read, Grep, Glob
 ---

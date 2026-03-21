@@ -1,5 +1,9 @@
 ---
-description: Scaffold a new WadeScript test file with correct conventions
+description: >
+  Scaffold a new WadeScript test file with correct conventions.
+  Use when asked to write tests, add test coverage, or create a test
+  for a specific feature. Ensures naming, structure, and assertions
+  follow project standards.
 user-invocable: true
 argument-hint: "[feature-name]"
 ---

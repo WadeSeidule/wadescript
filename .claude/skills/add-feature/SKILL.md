@@ -1,5 +1,8 @@
 ---
-description: Guided workflow for adding a new WadeScript language feature
+description: >
+  Guided 11-step workflow for adding a new WadeScript language feature.
+  Use when asked to add new syntax, keywords, built-in functions, operators,
+  or language constructs. Ensures all pipeline stages are updated correctly.
 user-invocable: true
 argument-hint: "[feature description]"
 ---

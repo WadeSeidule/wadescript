@@ -1,5 +1,8 @@
 ---
-description: Diagnose and fix a failing WadeScript test
+description: >
+  Diagnose and fix a failing WadeScript test. Use when a test fails,
+  an assertion error occurs, or when asked to debug test failures.
+  Traces through the compiler pipeline to find the root cause.
 user-invocable: true
 argument-hint: "[test file or name]"
 ---

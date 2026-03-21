@@ -1,5 +1,8 @@
 ---
-description: Run full CI verification pipeline (format, lint, build, test)
+description: >
+  Run full CI verification pipeline. Use after making any code changes,
+  before committing, or when asked to verify the build. Triggers on:
+  editing source files, fixing bugs, adding features, refactoring.
 user-invocable: true
 allowed-tools: Bash, Read
 ---

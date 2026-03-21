@@ -9,6 +9,18 @@
 - After any implementation, look for optimization opportunities. Do not go with an unoptimized solution unless explicitly told to.
 - Always run `make test test-rust` after changes to verify no regressions
 
+## Agent Skills
+
+Use the project skills in `.claude/skills/` automatically during development:
+
+- **After making code changes** → use `/verify` to run the full CI pipeline (format, lint, build, test)
+- **When adding a new language feature** → use `/add-feature` for the guided 11-step workflow
+- **When writing tests** → use `/new-test` to scaffold test files with correct conventions
+- **After completing a multi-file implementation** → use `/review` to check for missing pieces
+- **When a test fails** → use `/debug-test` to systematically diagnose the root cause
+
+Do not skip these skills. They encode project-specific knowledge and ensure consistency.
+
 ## Commands
 
 ```bash

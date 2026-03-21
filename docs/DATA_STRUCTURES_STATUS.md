@@ -31,25 +31,27 @@
 - **For loop iteration**: `for num in numbers { }` ✓
 - **Python-style range()**: `for i in range(10) { }` ✓
 
+## ✅ Multi-Type Lists (Complete!)
+- **list[float]**: Full runtime support (get, push, pop, set, slice, to_string) ✓
+- **list[str]**: Full runtime support (get, push, pop, set, slice, to_string) ✓
+- **Codegen dispatch**: Automatically selects correct runtime function by element type ✓
+- **For-loop iteration**: Works for all list element types ✓
+- **str()/print()**: Type-specific string conversion for all list types ✓
+
+## ✅ Arrays (Complete!)
+- **Fixed-size arrays**: Stack-allocated via LLVM array types ✓
+- **Array literals**: `int[5] = [1, 2, 3, 4, 5]` ✓
+- **Index access**: `arr[0]` via GEP instructions ✓
+- **Index assignment**: `arr[0] = 5` via GEP instructions ✓
+- **Float arrays**: `float[3] = [1.0, 2.0, 3.0]` ✓
+
 ## ❌ Not Yet Implemented
 
-### Arrays
-- **Fixed-size arrays**: Type-checked but no codegen
-- **Array literals**: Parser works, codegen needed
-- **Stack allocation**: Need LLVM array type handling
-
-### Dictionaries
-- **Runtime**: No hash table implementation yet
-- **Codegen**: Only stub implementations
-- **Estimate**: ~800 lines of C + ~200 lines Rust
-
 ### Advanced Features
-- **Index assignment**: `arr[0] = 5` - Parser ready, codegen needed
-- **Multi-type lists**: Only `list[int]` has runtime, need float/str versions
 - **Memory cleanup**: No automatic freeing (memory leaks currently)
-- **Bounds checking**: Runtime doesn't check array bounds
-- **List slicing**: Not planned yet
 - **List comprehensions**: Not planned yet
+- **Array slicing**: Not supported (arrays are fixed-size)
+- **Array iteration**: For-loop over arrays not yet supported
 
 ## Implementation Breakdown
 

@@ -315,6 +315,14 @@ impl<'ctx> CodeGen<'ctx> {
     }
 
     /// Get the WadeScript type of an expression (for str()/print() compile-time dispatch)
+    /// Get the element type of a list expression (for dispatch)
+    fn get_list_element_type(&self, expr: &Expression) -> Option<Type> {
+        match self.get_expression_type(expr) {
+            Some(Type::List(elem)) => Some(*elem),
+            _ => None,
+        }
+    }
+
     fn get_expression_type(&self, expr: &Expression) -> Option<Type> {
         match expr {
             Expression::IntLiteral(_) => Some(Type::Int),
@@ -419,8 +427,13 @@ impl<'ctx> CodeGen<'ctx> {
                     .try_as_basic_value().left().unwrap();
                 Ok(result)
             }
-            Some(Type::List(_)) => {
-                let list_to_str = self.functions.get("list_to_string").unwrap();
+            Some(Type::List(ref elem_type)) => {
+                let to_str_fn_name = match **elem_type {
+                    Type::Float => "list_to_string_f64",
+                    Type::Str => "list_to_string_str",
+                    _ => "list_to_string",
+                };
+                let list_to_str = self.functions.get(to_str_fn_name).unwrap();
                 let result = self.builder
                     .build_call(*list_to_str, &[arg_val.into()], "list_str")
                     .unwrap()
@@ -1324,6 +1337,71 @@ impl<'ctx> CodeGen<'ctx> {
 
         self.builder.build_return(Some(&length)).unwrap();
         self.functions.insert("list_length".to_string(), list_length_fn);
+
+        // Float list functions
+        let f64_type = self.context.f64_type();
+
+        // list_push_f64(list_ptr, value: f64) -> void
+        let list_push_f64_type = void_type.fn_type(&[ptr_type.into(), f64_type.into()], false);
+        let list_push_f64_fn = self.module.add_function("list_push_f64", list_push_f64_type, None);
+        self.functions.insert("list_push_f64".to_string(), list_push_f64_fn);
+
+        // list_get_f64(list_ptr, index) -> f64
+        let list_get_f64_type = f64_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        let list_get_f64_fn = self.module.add_function("list_get_f64", list_get_f64_type, None);
+        self.functions.insert("list_get_f64".to_string(), list_get_f64_fn);
+
+        // list_set_f64(list_ptr, index, value: f64) -> void
+        let list_set_f64_type = void_type.fn_type(&[ptr_type.into(), i64_type.into(), f64_type.into()], false);
+        let list_set_f64_fn = self.module.add_function("list_set_f64", list_set_f64_type, None);
+        self.functions.insert("list_set_f64".to_string(), list_set_f64_fn);
+
+        // list_pop_f64(list_ptr) -> f64
+        let list_pop_f64_type = f64_type.fn_type(&[ptr_type.into()], false);
+        let list_pop_f64_fn = self.module.add_function("list_pop_f64", list_pop_f64_type, None);
+        self.functions.insert("list_pop_f64".to_string(), list_pop_f64_fn);
+
+        // list_slice_f64(list_ptr, start, end, step) -> ptr
+        let list_slice_f64_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into(), i64_type.into()], false);
+        let list_slice_f64_fn = self.module.add_function("list_slice_f64", list_slice_f64_type, None);
+        self.functions.insert("list_slice_f64".to_string(), list_slice_f64_fn);
+
+        // list_to_string_f64(list_ptr) -> ptr
+        let list_to_string_f64_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let list_to_string_f64_fn = self.module.add_function("list_to_string_f64", list_to_string_f64_type, None);
+        self.functions.insert("list_to_string_f64".to_string(), list_to_string_f64_fn);
+
+        // String list functions
+
+        // list_push_str(list_ptr, value: ptr) -> void
+        let list_push_str_type = void_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let list_push_str_fn = self.module.add_function("list_push_str", list_push_str_type, None);
+        self.functions.insert("list_push_str".to_string(), list_push_str_fn);
+
+        // list_get_str(list_ptr, index) -> ptr
+        let list_get_str_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        let list_get_str_fn = self.module.add_function("list_get_str", list_get_str_type, None);
+        self.functions.insert("list_get_str".to_string(), list_get_str_fn);
+
+        // list_set_str(list_ptr, index, value: ptr) -> void
+        let list_set_str_type = void_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], false);
+        let list_set_str_fn = self.module.add_function("list_set_str", list_set_str_type, None);
+        self.functions.insert("list_set_str".to_string(), list_set_str_fn);
+
+        // list_pop_str(list_ptr) -> ptr
+        let list_pop_str_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let list_pop_str_fn = self.module.add_function("list_pop_str", list_pop_str_type, None);
+        self.functions.insert("list_pop_str".to_string(), list_pop_str_fn);
+
+        // list_slice_str(list_ptr, start, end, step) -> ptr
+        let list_slice_str_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into(), i64_type.into()], false);
+        let list_slice_str_fn = self.module.add_function("list_slice_str", list_slice_str_type, None);
+        self.functions.insert("list_slice_str".to_string(), list_slice_str_fn);
+
+        // list_to_string_str(list_ptr) -> ptr
+        let list_to_string_str_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        let list_to_string_str_fn = self.module.add_function("list_to_string_str", list_to_string_str_type, None);
+        self.functions.insert("list_to_string_str".to_string(), list_to_string_str_fn);
     }
 
     fn declare_dict_functions(&mut self) {
@@ -1596,6 +1674,14 @@ impl<'ctx> CodeGen<'ctx> {
         self.pure_functions.insert("list_push_i64".to_string());
         self.pure_functions.insert("list_set_i64".to_string());
         self.pure_functions.insert("list_pop_i64".to_string());
+        self.pure_functions.insert("list_get_f64".to_string());
+        self.pure_functions.insert("list_push_f64".to_string());
+        self.pure_functions.insert("list_set_f64".to_string());
+        self.pure_functions.insert("list_pop_f64".to_string());
+        self.pure_functions.insert("list_get_str".to_string());
+        self.pure_functions.insert("list_push_str".to_string());
+        self.pure_functions.insert("list_set_str".to_string());
+        self.pure_functions.insert("list_pop_str".to_string());
 
         // Dict functions - all non-escaping
         self.pure_functions.insert("dict_length".to_string());
@@ -2236,8 +2322,25 @@ impl<'ctx> CodeGen<'ctx> {
                     ).unwrap();
                     (key_ptr.as_basic_value_enum(), Type::Str)
                 } else {
-                    // For lists, use list_get_i64
-                    let list_get_fn = self.functions.get("list_get_i64").unwrap();
+                    // For lists, dispatch by element type
+                    let list_elem_type = if let Expression::Variable(var_name) = iterable {
+                        if let Some((_, _, ast_type)) = self.variables.get(var_name) {
+                            match ast_type {
+                                Type::List(elem) => Some(*elem.clone()),
+                                _ => None,
+                            }
+                        } else { None }
+                    } else {
+                        self.get_list_element_type(iterable)
+                    };
+
+                    let (get_fn_name, ast_type) = match &list_elem_type {
+                        Some(Type::Float) => ("list_get_f64", Type::Float),
+                        Some(Type::Str) => ("list_get_str", Type::Str),
+                        _ => ("list_get_i64", Type::Int),
+                    };
+
+                    let list_get_fn = self.functions.get(get_fn_name).unwrap();
                     let item_val = self
                         .builder
                         .build_call(*list_get_fn, &[iterable_loaded.into(), idx_loaded.into()], "item")
@@ -2245,7 +2348,7 @@ impl<'ctx> CodeGen<'ctx> {
                         .try_as_basic_value()
                         .left()
                         .unwrap();
-                    (item_val, Type::Int)
+                    (item_val, ast_type)
                 };
 
                 // Declare loop variable
@@ -3451,13 +3554,50 @@ impl<'ctx> CodeGen<'ctx> {
                 Ok(new_val)
             }
 
-            Expression::ArrayLiteral { .. } => {
-                Err("Array literals not yet fully implemented in codegen".to_string())
+            Expression::ArrayLiteral { elements } => {
+                if elements.is_empty() {
+                    return Err("Array literals must have at least one element".to_string());
+                }
+
+                // Compile first element to determine type
+                let first_val = self.compile_expression(&elements[0])?;
+                let elem_llvm_type = first_val.get_type();
+                let array_type = elem_llvm_type.array_type(elements.len() as u32);
+
+                // Stack-allocate the array
+                let array_alloca = self.builder.build_alloca(array_type, "array").unwrap();
+
+                // Store first element
+                let zero = self.context.i32_type().const_zero();
+                let idx0 = self.context.i32_type().const_zero();
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(array_type, array_alloca, &[zero, idx0], "elem_ptr").unwrap()
+                };
+                self.builder.build_store(elem_ptr, first_val).unwrap();
+
+                // Store remaining elements
+                for (i, element) in elements.iter().skip(1).enumerate() {
+                    let elem_val = self.compile_expression(element)?;
+                    let idx = self.context.i32_type().const_int((i + 1) as u64, false);
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(array_type, array_alloca, &[zero, idx], "elem_ptr").unwrap()
+                    };
+                    self.builder.build_store(elem_ptr, elem_val).unwrap();
+                }
+
+                // Return pointer to the array
+                Ok(array_alloca.as_basic_value_enum())
             }
 
             Expression::ListLiteral { elements } => {
-                // For now, only support int lists
-                // Create empty list
+                // Determine element type from first element or variable context
+                let elem_type = if let Some(first) = elements.first() {
+                    self.get_expression_type(first).unwrap_or(Type::Int)
+                } else {
+                    Type::Int
+                };
+
+                // Create empty list (all list types use same struct layout)
                 let list_create = self.functions.get("list_create_i64").unwrap();
                 let list_ptr = self
                     .builder
@@ -3467,9 +3607,14 @@ impl<'ctx> CodeGen<'ctx> {
                     .left()
                     .unwrap();
 
-                // Add each element by calling list_push_i64
+                // Add each element using type-appropriate push function
                 if !elements.is_empty() {
-                    let list_push = *self.functions.get("list_push_i64").unwrap();
+                    let push_fn_name = match &elem_type {
+                        Type::Float => "list_push_f64",
+                        Type::Str => "list_push_str",
+                        _ => "list_push_i64",
+                    };
+                    let list_push = *self.functions.get(push_fn_name).unwrap();
 
                     for element in elements {
                         let element_value = self.compile_expression(element)?;
@@ -3543,16 +3688,46 @@ impl<'ctx> CodeGen<'ctx> {
                         .unwrap();
                     Ok(result)
                 } else {
-                    // List access with int index (no line parameter needed)
-                    let list_get = self.functions.get("list_get_i64").unwrap();
-                    let result = self
-                        .builder
-                        .build_call(*list_get, &[obj_val.into(), idx_val.into()], "element")
-                        .unwrap()
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(result)
+                    // Check if this is an array access (variable with Array type)
+                    let obj_type = self.get_expression_type(object);
+                    if let Some(Type::Array(elem_type, _)) = &obj_type {
+                        // Array access via GEP (stack-allocated array)
+                        let array_ptr = if let Expression::Variable(var_name) = &**object {
+                            let (ptr, _, _) = self.variables.get(var_name)
+                                .ok_or_else(|| format!("Undefined variable '{}'", var_name))?;
+                            *ptr
+                        } else {
+                            // obj_val is already a pointer from compile_expression
+                            obj_val.into_pointer_value()
+                        };
+
+                        let elem_llvm_type = self.get_llvm_type(elem_type);
+                        let array_llvm_type = elem_llvm_type.array_type(0); // size doesn't matter for GEP
+                        let zero = self.context.i32_type().const_zero();
+                        let idx_i32 = self.builder.build_int_cast(idx_val.into_int_value(), self.context.i32_type(), "idx_i32").unwrap();
+                        let elem_ptr = unsafe {
+                            self.builder.build_gep(array_llvm_type, array_ptr, &[zero, idx_i32], "array_elem_ptr").unwrap()
+                        };
+                        let element = self.builder.build_load(elem_llvm_type, elem_ptr, "array_elem").unwrap();
+                        Ok(element)
+                    } else {
+                        // List access - dispatch by element type
+                        let list_elem_type = self.get_list_element_type(object);
+                        let get_fn_name = match &list_elem_type {
+                            Some(Type::Float) => "list_get_f64",
+                            Some(Type::Str) => "list_get_str",
+                            _ => "list_get_i64",
+                        };
+                        let list_get = self.functions.get(get_fn_name).unwrap();
+                        let result = self
+                            .builder
+                            .build_call(*list_get, &[obj_val.into(), idx_val.into()], "element")
+                            .unwrap()
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap();
+                        Ok(result)
+                    }
                 }
             }
 
@@ -3593,9 +3768,34 @@ impl<'ctx> CodeGen<'ctx> {
                         &[obj_val.into(), idx_val.into(), val_val.into()], "")
                         .unwrap();
                 } else {
-                    // List assignment with int index (no line parameter needed)
-                    let list_set = self.functions.get("list_set_i64")
-                        .ok_or("list_set_i64 function not found")?;
+                    // Check if this is an array assignment
+                    let obj_ast_type = self.variables.get(object)
+                        .map(|(_, _, t)| t.clone());
+
+                    if let Some(Type::Array(ref elem_type, _)) = obj_ast_type {
+                        // Array index assignment via GEP
+                        let (array_ptr, _, _) = self.variables.get(object).unwrap().clone();
+                        let elem_llvm_type = self.get_llvm_type(elem_type);
+                        let array_llvm_type = elem_llvm_type.array_type(0);
+                        let zero = self.context.i32_type().const_zero();
+                        let idx_i32 = self.builder.build_int_cast(idx_val.into_int_value(), self.context.i32_type(), "idx_i32").unwrap();
+                        let elem_ptr = unsafe {
+                            self.builder.build_gep(array_llvm_type, array_ptr, &[zero, idx_i32], "array_elem_ptr").unwrap()
+                        };
+                        self.builder.build_store(elem_ptr, val_val).unwrap();
+                        return Ok(self.context.i64_type().const_zero().as_basic_value_enum());
+                    }
+
+                    let set_fn_name = match &obj_ast_type {
+                        Some(Type::List(elem)) => match **elem {
+                            Type::Float => "list_set_f64",
+                            Type::Str => "list_set_str",
+                            _ => "list_set_i64",
+                        },
+                        _ => "list_set_i64",
+                    };
+                    let list_set = self.functions.get(set_fn_name)
+                        .ok_or(format!("{} function not found", set_fn_name))?;
                     self.builder.build_call(*list_set,
                         &[obj_val.into(), idx_val.into(), val_val.into()], "")
                         .unwrap();
@@ -3680,13 +3880,21 @@ impl<'ctx> CodeGen<'ctx> {
 
                 let obj_val = self.compile_expression(object)?;
 
+                // Determine list element type for dispatch
+                let list_elem = self.get_list_element_type(object);
+
                 match method.as_str() {
                     "push" => {
                         if args.len() != 1 {
                             return Err("push() takes exactly 1 argument".to_string());
                         }
                         let arg_val = self.compile_expression(&args[0])?;
-                        let list_push = *self.functions.get("list_push_i64").unwrap();
+                        let push_fn_name = match &list_elem {
+                            Some(Type::Float) => "list_push_f64",
+                            Some(Type::Str) => "list_push_str",
+                            _ => "list_push_i64",
+                        };
+                        let list_push = *self.functions.get(push_fn_name).unwrap();
                         self.builder
                             .build_call(list_push, &[obj_val.into(), arg_val.into()], "")
                             .unwrap();
@@ -3698,7 +3906,12 @@ impl<'ctx> CodeGen<'ctx> {
                         if !args.is_empty() {
                             return Err("pop() takes no arguments".to_string());
                         }
-                        let list_pop = *self.functions.get("list_pop_i64").unwrap();
+                        let pop_fn_name = match &list_elem {
+                            Some(Type::Float) => "list_pop_f64",
+                            Some(Type::Str) => "list_pop_str",
+                            _ => "list_pop_i64",
+                        };
+                        let list_pop = *self.functions.get(pop_fn_name).unwrap();
                         let result = self
                             .builder
                             .build_call(list_pop, &[obj_val.into()], "pop_result")
@@ -3714,7 +3927,12 @@ impl<'ctx> CodeGen<'ctx> {
                             return Err("get() takes exactly 1 argument".to_string());
                         }
                         let idx_val = self.compile_expression(&args[0])?;
-                        let list_get = *self.functions.get("list_get_i64").unwrap();
+                        let get_fn_name = match &list_elem {
+                            Some(Type::Float) => "list_get_f64",
+                            Some(Type::Str) => "list_get_str",
+                            _ => "list_get_i64",
+                        };
+                        let list_get = *self.functions.get(get_fn_name).unwrap();
                         let result = self
                             .builder
                             .build_call(list_get, &[obj_val.into(), idx_val.into()], "get_result")
@@ -3928,7 +4146,12 @@ impl<'ctx> CodeGen<'ctx> {
                 let slice_fn = if is_string {
                     self.functions.get("str_slice").unwrap()
                 } else {
-                    self.functions.get("list_slice_i64").unwrap()
+                    let list_elem = self.get_list_element_type(object);
+                    match &list_elem {
+                        Some(Type::Float) => self.functions.get("list_slice_f64").unwrap(),
+                        Some(Type::Str) => self.functions.get("list_slice_str").unwrap(),
+                        _ => self.functions.get("list_slice_i64").unwrap(),
+                    }
                 };
 
                 let result = self

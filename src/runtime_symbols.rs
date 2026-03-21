@@ -22,6 +22,8 @@ pub struct RuntimeSymbol {
 pub fn get_runtime_symbols() -> Vec<RuntimeSymbol> {
     // Import from each submodule explicitly
     use crate::runtime::list::{list_get_i64, list_push_i64, list_pop_i64, list_set_i64, list_slice_i64};
+    use crate::runtime::list::{list_get_f64, list_push_f64, list_pop_f64, list_set_f64, list_slice_f64, list_to_string_f64};
+    use crate::runtime::list::{list_get_str, list_push_str, list_pop_str, list_set_str, list_slice_str, list_to_string_str};
     use crate::runtime::dict::{dict_create, dict_set, dict_get, dict_has};
     use crate::runtime::string::{str_length, str_upper, str_lower, str_contains, str_char_at, str_slice, int_to_string, float_to_string, bool_to_string};
     use crate::runtime::list::list_to_string;
@@ -51,6 +53,22 @@ pub fn get_runtime_symbols() -> Vec<RuntimeSymbol> {
         RuntimeSymbol { name: "list_pop_i64", addr: list_pop_i64 as usize },
         RuntimeSymbol { name: "list_set_i64", addr: list_set_i64 as usize },
         RuntimeSymbol { name: "list_slice_i64", addr: list_slice_i64 as usize },
+
+        // Float list operations
+        RuntimeSymbol { name: "list_get_f64", addr: list_get_f64 as usize },
+        RuntimeSymbol { name: "list_push_f64", addr: list_push_f64 as usize },
+        RuntimeSymbol { name: "list_pop_f64", addr: list_pop_f64 as usize },
+        RuntimeSymbol { name: "list_set_f64", addr: list_set_f64 as usize },
+        RuntimeSymbol { name: "list_slice_f64", addr: list_slice_f64 as usize },
+        RuntimeSymbol { name: "list_to_string_f64", addr: list_to_string_f64 as usize },
+
+        // String list operations
+        RuntimeSymbol { name: "list_get_str", addr: list_get_str as usize },
+        RuntimeSymbol { name: "list_push_str", addr: list_push_str as usize },
+        RuntimeSymbol { name: "list_pop_str", addr: list_pop_str as usize },
+        RuntimeSymbol { name: "list_set_str", addr: list_set_str as usize },
+        RuntimeSymbol { name: "list_slice_str", addr: list_slice_str as usize },
+        RuntimeSymbol { name: "list_to_string_str", addr: list_to_string_str as usize },
 
         // Dict operations
         RuntimeSymbol { name: "dict_create", addr: dict_create as usize },

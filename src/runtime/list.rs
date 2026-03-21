@@ -203,6 +203,323 @@ pub extern "C" fn list_slice_i64(list: *const List, start: i64, end: i64, step: 
     }
 }
 
+// ============================================================
+// Float list operations (list[float])
+// Same List struct, data pointer cast to *mut f64
+// ============================================================
+
+/// Float list: reinterpret data as *mut f64 since f64 and i64 are both 8 bytes
+#[repr(C)]
+pub struct FloatList {
+    pub data: *mut f64,
+    pub length: i64,
+    pub capacity: i64,
+}
+
+/// Get element at index from f64 list
+#[no_mangle]
+pub extern "C" fn list_get_f64(list: *const List, index: i64) -> f64 {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List access error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &*(list as *const FloatList);
+
+        if index < 0 || index >= list_ref.length {
+            let msg = CString::new(format!(
+                "List index out of bounds: index {} is out of range for list of length {}",
+                index, list_ref.length
+            )).unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        *list_ref.data.offset(index as isize)
+    }
+}
+
+/// Push element to f64 list
+#[no_mangle]
+pub extern "C" fn list_push_f64(list: *mut List, value: f64) {
+    unsafe {
+        if list.is_null() {
+            return;
+        }
+
+        let list_ref = &mut *(list as *mut FloatList);
+
+        if list_ref.length >= list_ref.capacity {
+            let new_capacity = if list_ref.capacity == 0 { 4 } else { list_ref.capacity * 2 };
+
+            if list_ref.data.is_null() {
+                let layout = Layout::array::<f64>(new_capacity as usize).unwrap();
+                list_ref.data = alloc(layout) as *mut f64;
+            } else {
+                let old_layout = Layout::array::<f64>(list_ref.capacity as usize).unwrap();
+                let new_layout = Layout::array::<f64>(new_capacity as usize).unwrap();
+                list_ref.data = realloc(
+                    list_ref.data as *mut u8,
+                    old_layout,
+                    new_layout.size(),
+                ) as *mut f64;
+            }
+
+            list_ref.capacity = new_capacity;
+        }
+
+        *list_ref.data.offset(list_ref.length as isize) = value;
+        list_ref.length += 1;
+    }
+}
+
+/// Pop element from f64 list
+#[no_mangle]
+pub extern "C" fn list_pop_f64(list: *mut List) -> f64 {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List pop error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &mut *(list as *mut FloatList);
+
+        if list_ref.length == 0 {
+            let msg = CString::new("List pop error: cannot pop from empty list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        list_ref.length -= 1;
+        *list_ref.data.offset(list_ref.length as isize)
+    }
+}
+
+/// Set element at index in f64 list
+#[no_mangle]
+pub extern "C" fn list_set_f64(list: *mut List, index: i64, value: f64) {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List assignment error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &mut *(list as *mut FloatList);
+
+        if index < 0 || index >= list_ref.length {
+            let msg = CString::new(format!(
+                "List index out of bounds: index {} is out of range for list of length {}",
+                index, list_ref.length
+            )).unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        *list_ref.data.offset(index as isize) = value;
+    }
+}
+
+/// Slice a float list and return a new list
+#[no_mangle]
+pub extern "C" fn list_slice_f64(list: *const List, start: i64, end: i64, step: i64) -> *mut List {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List slice error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &*(list as *const FloatList);
+        let len = list_ref.length;
+
+        let actual_step = if step == 0 { 1 } else { step };
+
+        let (actual_start, actual_end) = if actual_step > 0 {
+            let s = if start == -1 { 0 } else if start < 0 { (len + start).max(0) } else { start.min(len) };
+            let e = if end == -1 { len } else if end < 0 { (len + end).max(0) } else { end.min(len) };
+            (s, e)
+        } else {
+            let s = if start == -1 { len - 1 } else if start < 0 { len + start } else { start.min(len - 1) };
+            let e = if end == -1 { -1 } else if end < 0 { len + end } else { end };
+            (s, e)
+        };
+
+        let result_size = if actual_step > 0 {
+            if actual_start >= actual_end { 0 } else { ((actual_end - actual_start - 1) / actual_step + 1) as usize }
+        } else {
+            if actual_start <= actual_end { 0 } else { ((actual_start - actual_end - 1) / (-actual_step) + 1) as usize }
+        };
+
+        let layout = Layout::new::<FloatList>();
+        let new_list = alloc(layout) as *mut FloatList;
+
+        if result_size == 0 {
+            (*new_list).data = std::ptr::null_mut();
+            (*new_list).length = 0;
+            (*new_list).capacity = 0;
+        } else {
+            let data_layout = Layout::array::<f64>(result_size).unwrap();
+            let new_data = alloc(data_layout) as *mut f64;
+
+            let mut idx = actual_start;
+            let mut dest_idx = 0usize;
+
+            if actual_step > 0 {
+                while idx < actual_end && dest_idx < result_size {
+                    *new_data.add(dest_idx) = *list_ref.data.offset(idx as isize);
+                    idx += actual_step;
+                    dest_idx += 1;
+                }
+            } else {
+                while idx > actual_end && dest_idx < result_size {
+                    *new_data.add(dest_idx) = *list_ref.data.offset(idx as isize);
+                    idx += actual_step;
+                    dest_idx += 1;
+                }
+            }
+
+            (*new_list).data = new_data;
+            (*new_list).length = dest_idx as i64;
+            (*new_list).capacity = result_size as i64;
+        }
+
+        new_list as *mut List
+    }
+}
+
+/// Convert float list to string representation
+#[no_mangle]
+pub extern "C" fn list_to_string_f64(list: *const List) -> *mut u8 {
+    unsafe {
+        if list.is_null() || (&*list).length == 0 {
+            let s = "[]";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            std::ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        let list_ref = &*(list as *const FloatList);
+        let mut result = String::from("[");
+
+        for i in 0..list_ref.length {
+            if i > 0 {
+                result.push_str(", ");
+            }
+            let val = *list_ref.data.offset(i as isize);
+            // Format like Python: no trailing .0 for whole numbers would be wrong,
+            // always show decimal for floats
+            if val == val.floor() && val.abs() < 1e15 {
+                result.push_str(&format!("{:.1}", val));
+            } else {
+                result.push_str(&val.to_string());
+            }
+        }
+        result.push(']');
+
+        let len = result.len();
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout) as *mut u8;
+        std::ptr::copy_nonoverlapping(result.as_ptr(), dest, len);
+        *dest.add(len) = 0;
+        dest
+    }
+}
+
+// ============================================================
+// String list operations (list[str])
+// Stores string pointers as i64 values (pointer-as-int)
+// ============================================================
+
+/// Get element at index from str list (returns string pointer)
+#[no_mangle]
+pub extern "C" fn list_get_str(list: *const List, index: i64) -> *const u8 {
+    unsafe {
+        if list.is_null() {
+            let msg = CString::new("List access error: null list").unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        let list_ref = &*list;
+
+        if index < 0 || index >= list_ref.length {
+            let msg = CString::new(format!(
+                "List index out of bounds: index {} is out of range for list of length {}",
+                index, list_ref.length
+            )).unwrap();
+            runtime_error(msg.as_ptr());
+        }
+
+        // String pointers stored as i64
+        *list_ref.data.offset(index as isize) as *const u8
+    }
+}
+
+/// Push string pointer to str list
+#[no_mangle]
+pub extern "C" fn list_push_str(list: *mut List, value: *const u8) {
+    // Store the pointer as an i64 value
+    list_push_i64(list, value as i64);
+}
+
+/// Pop string from str list (returns string pointer)
+#[no_mangle]
+pub extern "C" fn list_pop_str(list: *mut List) -> *const u8 {
+    list_pop_i64(list) as *const u8
+}
+
+/// Set element at index in str list
+#[no_mangle]
+pub extern "C" fn list_set_str(list: *mut List, index: i64, value: *const u8) {
+    list_set_i64(list, index, value as i64);
+}
+
+/// Slice a string list and return a new list
+#[no_mangle]
+pub extern "C" fn list_slice_str(list: *const List, start: i64, end: i64, step: i64) -> *mut List {
+    // String pointers are stored as i64, so we can reuse the i64 slice
+    list_slice_i64(list, start, end, step)
+}
+
+/// Convert string list to string representation
+#[no_mangle]
+pub extern "C" fn list_to_string_str(list: *const List) -> *mut u8 {
+    unsafe {
+        if list.is_null() || (&*list).length == 0 {
+            let s = "[]";
+            let layout = Layout::array::<u8>(3).unwrap();
+            let dest = alloc(layout) as *mut u8;
+            std::ptr::copy_nonoverlapping(s.as_ptr(), dest, 2);
+            *dest.add(2) = 0;
+            return dest;
+        }
+
+        let list_ref = &*list;
+        let mut result = String::from("[");
+
+        for i in 0..list_ref.length {
+            if i > 0 {
+                result.push_str(", ");
+            }
+            let str_ptr = *list_ref.data.offset(i as isize) as *const i8;
+            if str_ptr.is_null() {
+                result.push_str("\"\"");
+            } else {
+                let cstr = std::ffi::CStr::from_ptr(str_ptr);
+                result.push('"');
+                result.push_str(cstr.to_str().unwrap_or(""));
+                result.push('"');
+            }
+        }
+        result.push(']');
+
+        let len = result.len();
+        let layout = Layout::array::<u8>(len + 1).unwrap();
+        let dest = alloc(layout) as *mut u8;
+        std::ptr::copy_nonoverlapping(result.as_ptr(), dest, len);
+        *dest.add(len) = 0;
+        dest
+    }
+}
+
 /// Convert list to string representation: [elem1, elem2, ...]
 #[no_mangle]
 pub extern "C" fn list_to_string(list: *const List) -> *mut u8 {
@@ -398,6 +715,121 @@ mod tests {
         unsafe {
             let cstr = CStr::from_ptr(single_str as *const i8);
             assert_eq!(cstr.to_str().unwrap(), "[42]");
+        }
+    }
+
+    // Float list tests
+
+    fn create_test_float_list() -> Box<FloatList> {
+        Box::new(FloatList {
+            data: std::ptr::null_mut(),
+            length: 0,
+            capacity: 0,
+        })
+    }
+
+    #[test]
+    fn test_float_list_push_and_get() {
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.5);
+        list_push_f64(list_ptr, 2.7);
+        list_push_f64(list_ptr, 3.14);
+
+        assert_eq!(list_get_f64(list_ptr, 0), 1.5);
+        assert_eq!(list_get_f64(list_ptr, 1), 2.7);
+        assert_eq!(list_get_f64(list_ptr, 2), 3.14);
+        assert_eq!(list.length, 3);
+    }
+
+    #[test]
+    fn test_float_list_pop() {
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.1);
+        list_push_f64(list_ptr, 2.2);
+
+        assert_eq!(list_pop_f64(list_ptr), 2.2);
+        assert_eq!(list.length, 1);
+        assert_eq!(list_pop_f64(list_ptr), 1.1);
+        assert_eq!(list.length, 0);
+    }
+
+    #[test]
+    fn test_float_list_set() {
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.0);
+        list_push_f64(list_ptr, 2.0);
+        list_push_f64(list_ptr, 3.0);
+
+        list_set_f64(list_ptr, 1, 99.9);
+        assert_eq!(list_get_f64(list_ptr, 1), 99.9);
+    }
+
+    #[test]
+    fn test_float_list_to_string() {
+        use std::ffi::CStr;
+
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.5);
+        list_push_f64(list_ptr, 2.0);
+        list_push_f64(list_ptr, 3.14);
+
+        let result = list_to_string_f64(list_ptr);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "[1.5, 2.0, 3.14]");
+        }
+    }
+
+    // String list tests
+
+    #[test]
+    fn test_str_list_push_and_get() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        let s1 = CString::new("hello").unwrap();
+        let s2 = CString::new("world").unwrap();
+
+        list_push_str(list_ptr, s1.as_ptr() as *const u8);
+        list_push_str(list_ptr, s2.as_ptr() as *const u8);
+
+        let r1 = list_get_str(list_ptr, 0);
+        let r2 = list_get_str(list_ptr, 1);
+
+        unsafe {
+            let cstr1 = std::ffi::CStr::from_ptr(r1 as *const i8);
+            let cstr2 = std::ffi::CStr::from_ptr(r2 as *const i8);
+            assert_eq!(cstr1.to_str().unwrap(), "hello");
+            assert_eq!(cstr2.to_str().unwrap(), "world");
+        }
+        assert_eq!(list.length, 2);
+    }
+
+    #[test]
+    fn test_str_list_to_string() {
+        use std::ffi::CStr;
+
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        let s1 = CString::new("hello").unwrap();
+        let s2 = CString::new("world").unwrap();
+
+        list_push_str(list_ptr, s1.as_ptr() as *const u8);
+        list_push_str(list_ptr, s2.as_ptr() as *const u8);
+
+        let result = list_to_string_str(list_ptr);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "[\"hello\", \"world\"]");
         }
     }
 }

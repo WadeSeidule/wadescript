@@ -26,11 +26,14 @@ active: bool = True
 ```
 
 ### Collections
-- `list[T]`, `dict[K, V]`, `array[T, N]`, `(T1, T2, ...)` (tuples)
+- `list[T]` (T = int, float, str), `dict[K, V]`, `array[T, N]`, `(T1, T2, ...)` (tuples)
 
 ```wadescript
 nums: list[int] = [1, 2, 3]
+prices: list[float] = [1.5, 2.7, 3.14]
+names: list[str] = ["Alice", "Bob"]
 ages: dict[str, int] = {"Alice": 25}
+fixed: int[5] = [10, 20, 30, 40, 50]
 point: (int, int) = (10, 20)
 ```
 

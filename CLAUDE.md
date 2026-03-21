@@ -21,6 +21,16 @@ Use the project skills in `.claude/skills/` automatically during development:
 
 Do not skip these skills. They encode project-specific knowledge and ensure consistency.
 
+## Plugins
+
+The following plugins are enabled in `.claude/settings.json`:
+
+- **rust-analyzer-lsp** — Real-time Rust diagnostics, type checking, and code intelligence. Use LSP diagnostics to catch errors immediately after edits rather than waiting for `cargo build`.
+- **code-review** — Automated code review for pull requests. Use when preparing PRs.
+- **commit-commands** — Git commit and PR workflows.
+- **code-simplifier** — Reviews code for simplification opportunities. Use after implementing features to find optimization and cleanup opportunities.
+- **claude-md-management** — Maintains CLAUDE.md as the project evolves. Use when project structure or workflows change significantly.
+
 ## Commands
 
 ```bash

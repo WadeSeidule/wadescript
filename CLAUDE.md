@@ -1,118 +1,99 @@
 # WadeScript - AI Assistant Guide
 
-## Development Guide for AI Assistant
-- use ./ws util to run/build wadescript
-  - wadescript binarys should have the .o extension
-- when adding features always add tests to both rust code and wadescript/tests
-  - When tests fail always fix the underlying bug. Do not rewrite test to get around the bug.
-- when adding or changing any functionality document changes in docs/ dir
-- After any implementation try and see if there are ways to optimize. Do not go with an unoptimized solution unless explicitly told to do so.
+## Rules
 
-## Documentation Location
+- Use `./ws` to run/build WadeScript (binaries use `.o` extension)
+- When adding features, always add tests to both Rust code and `tests/` directory
+- When tests fail, fix the underlying bug. Do not rewrite tests to work around bugs.
+- When adding or changing functionality, document changes in `docs/` directory
+- After any implementation, look for optimization opportunities. Do not go with an unoptimized solution unless explicitly told to.
+- Always run `make test test-rust` after changes to verify no regressions
 
-**All detailed documentation is in the `docs/` directory.**
+## Agent Skills
 
-- **Quick Start**: `docs/QUICKSTART.md` - Get started quickly
-- **Building**: `docs/BUILD.md` - Build system and compilation details
-- **Testing**: `docs/TESTING.md` - Test suite and writing tests
-- **Data Structures**: `docs/DATA_STRUCTURES.md` - Lists, dicts, arrays
-- **Lists**: `docs/LISTS.md` - List implementation details
-- **For Loops**: `docs/FOR_LOOPS.md` - For loop implementation
-- **Imports**: `docs/IMPORTS.md` - Module system details
-- **Exceptions**: `docs/EXCEPTION_SYSTEM.md` - Exception handling system
-- **RC Implementation**: `docs/RC_IMPLEMENTATION.md` - Reference counting internals
-- **Benchmarks**: `docs/BENCHMARK_RESULTS.md` - Performance benchmarks and optimizations
-- **Test Summary**: `docs/TEST_SUITE_SUMMARY.md` - Test coverage overview
-- **CLI Module**: `docs/CLI.md` - Command-line argument parsing
-- **HTTP Module**: `docs/HTTP.md` - HTTP client for web requests
-- **Language Server**: `docs/LSP.md` - LSP implementation for IDE integration
-- **Tuples**: `docs/TUPLES.md` - Tuple types, literals, unpacking, indexing
-- **Slices**: `docs/SLICES.md` - Python-style slice syntax for lists and strings
-- **Named Arguments**: `docs/NAMED_ARGS.md` - Named arguments and default parameters
-- **REPL**: `docs/REPL.md` - Interactive Read-Eval-Print Loop
+Use the project skills in `.claude/skills/` automatically during development:
 
-## Project Overview
+- **After making code changes** → use `/verify` to run the full CI pipeline (format, lint, build, test)
+- **When adding a new language feature** → use `/add-feature` for the guided 11-step workflow
+- **When writing tests** → use `/new-test` to scaffold test files with correct conventions
+- **After completing a multi-file implementation** → use `/review` to check for missing pieces
+- **When a test fails** → use `/debug-test` to systematically diagnose the root cause
 
-WadeScript is a statically-typed programming language that compiles to native code via LLVM. It features Python-like syntax with strong type checking and compiles to efficient native executables.
+Do not skip these skills. They encode project-specific knowledge and ensure consistency.
 
-**Language Features:**
-- Static type system with type inference
-- Functions with explicit return types
-- Named arguments and default parameters
-- Control flow (if/elif/else, while, for loops, break/continue)
-- Exception handling (try/except/finally, raise)
-- Data structures (lists, dictionaries, arrays, tuples)
-- Slice syntax for lists and strings (`list[1:5]`, `str[::2]`)
-- String methods (upper, lower, contains) and string iteration
-- Classes with methods and fields
-- Module system with imports
-- F-strings for string interpolation
-- Compound assignment operators (+=, -=, *=, /=)
-- Increment/decrement operators (++, --)
-- Assert statements for testing
-- Reference counting with automatic memory management
-- Built-in functions (print_int, print_float, print_str, print_bool, range)
-- Interactive REPL with JIT compilation
+## Plugins
 
-## Quick Reference
+The following plugins are enabled in `.claude/settings.json`:
 
-### Essential Commands
+- **rust-analyzer-lsp** — Real-time Rust diagnostics, type checking, and code intelligence. Use LSP diagnostics to catch errors immediately after edits rather than waiting for `cargo build`.
+- **code-review** — Automated code review for pull requests. Use when preparing PRs.
+- **commit-commands** — Git commit and PR workflows.
+- **code-simplifier** — Reviews code for simplification opportunities. Use after implementing features to find optimization and cleanup opportunities.
+- **claude-md-management** — Maintains CLAUDE.md as the project evolves. Use when project structure or workflows change significantly.
+
+## Commands
 
 ```bash
-# Build and test
-make                 # Build compiler + runtime (debug)
-make test            # Run all tests
-./ws run file.ws     # Run a WadeScript program
-./ws build file.ws   # Compile to executable
+# Build
+make                         # Build compiler + runtime (debug)
+make clean-all && make       # Full rebuild from scratch
+
+# Run
+./ws run file.ws             # Compile and run a program
+./ws run file.ws --emit-llvm # Emit LLVM IR for debugging
+./ws build file.ws           # Compile to executable (.o)
+./ws build file.ws -o name   # Compile with custom output name
+
+# Test
+make test                    # Run all WadeScript tests
+make test-rust               # Run all Rust unit tests
+./ws test                    # Alternative test runner
+./ws run tests/test_foo.ws   # Run individual test
 
 # Development
-make check           # Fast syntax check
-make fmt             # Format Rust code
-make examples        # Compile all examples
-
-# IDE Integration
-./ws lsp             # Start language server for IDE integration
+make check                   # Fast syntax check
+make fmt                     # Format Rust code
+make examples                # Compile all examples
+./ws repl                    # Start interactive REPL
+./ws lsp                     # Start language server
 ```
 
-See `docs/BUILD.md` for complete build documentation.
-
-### Project Structure
+## Project Structure
 
 ```
 wadescript/
 ├── src/
-│   ├── main.rs           # Entry point, imports, linking
-│   ├── lexer.rs          # Tokenization
-│   ├── parser.rs         # Parsing
-│   ├── ast.rs            # Abstract Syntax Tree
-│   ├── typechecker.rs    # Type checking
-│   ├── codegen.rs        # LLVM IR generation (includes RC optimizations)
-│   ├── jit.rs            # JIT engine for REPL
-│   ├── repl.rs           # Interactive REPL
-│   ├── runtime_symbols.rs # Centralized runtime symbol registry (for JIT)
-│   ├── language_defs.rs  # Centralized language definitions (for LSP)
-│   ├── lsp/              # Language Server Protocol implementation
-│   │   ├── mod.rs        # LSP module root
-│   │   ├── server.rs     # LSP server (tower-lsp)
-│   │   ├── analysis.rs   # Code analysis coordinator
-│   │   ├── document.rs   # Document state management
-│   │   ├── diagnostics.rs # Error to diagnostic conversion
-│   │   └── span.rs       # Span and position utilities
-│   └── runtime/          # Rust runtime library
-│       ├── lib.rs        # Library exports (for static library)
-│       ├── mod.rs        # Module exports (for main binary)
-│       ├── list.rs       # Dynamic lists
-│       ├── dict.rs       # Hash table dictionaries
-│       ├── string.rs     # String operations
-│       ├── rc.rs         # Reference counting
-│       ├── io.rs         # File I/O operations
-│       ├── cli.rs        # CLI argument parsing
-│       ├── http.rs       # HTTP client
-│       └── exceptions.rs # Exception handling
-├── docs/                 # All detailed documentation
-├── examples/             # Example WadeScript programs
-├── tests/                # Test suite
-└── benchmarks/           # Performance benchmarks
+│   ├── main.rs              # Entry point, CLI args, linking
+│   ├── lexer.rs             # Tokenization
+│   ├── parser.rs            # Tokens → AST
+│   ├── ast.rs               # AST node definitions
+│   ├── typechecker.rs       # Type checking, symbol tables
+│   ├── codegen.rs           # AST → LLVM IR (largest file, ~4K lines)
+│   ├── jit.rs               # JIT engine for REPL
+│   ├── repl.rs              # Interactive REPL
+│   ├── runtime_symbols.rs   # Runtime symbol registry (keeps JIT in sync)
+│   ├── language_defs.rs     # Language definitions (keeps LSP in sync)
+│   ├── lsp/                 # Language Server Protocol
+│   │   ├── server.rs        # LSP server (tower-lsp)
+│   │   ├── analysis.rs      # Code analysis
+│   │   ├── document.rs      # Document state
+│   │   ├── diagnostics.rs   # Error → diagnostic conversion
+│   │   └── span.rs          # Position utilities
+│   └── runtime/             # Rust runtime → libwadescript_runtime.a
+│       ├── list.rs          # Dynamic lists
+│       ├── dict.rs          # Hash table dictionaries
+│       ├── string.rs        # String operations
+│       ├── rc.rs            # Reference counting
+│       ├── exceptions.rs    # Exception handling
+│       ├── io.rs            # File I/O
+│       ├── cli.rs           # CLI argument parsing
+│       └── http.rs          # HTTP client
+├── std/                     # Standard library (.ws modules: cli, http, io)
+├── tests/                   # Test suite (44 .ws test files)
+├── examples/                # Example programs (64 .ws files)
+├── benchmarks/              # Performance benchmarks
+├── editors/vscode/          # VS Code extension (syntax + LSP)
+└── docs/                    # All detailed documentation
 ```
 
 ### Compilation Pipeline
@@ -123,347 +104,91 @@ wadescript/
 4. **Code Generation** (codegen.rs): AST → LLVM IR → Object file
 5. **Linking** (main.rs): Object file + runtime → Executable
 
-See `docs/BUILD.md` for detailed compilation process.
-
-## Key Components
-
-### AST (ast.rs)
-- `Program`: Top-level container with statements and module map
-- `Statement`: Variable declarations, functions, classes, control flow
-- `Expression`: Literals, operations, function calls, member access
-- `Type`: Int, Float, Str, Bool, List, Dict, Array, Custom classes
-
-### Type Checker (typechecker.rs)
-- Symbol tables for variables and functions
-- Class definitions with fields and methods
-- Type compatibility validation (Float accepts Int)
-- Module imports and function visibility
-
-### Code Generator (codegen.rs)
-- Uses inkwell (LLVM bindings for Rust)
-- Generates LLVM IR for all WadeScript constructs
-- Implements reference counting with optimizations:
-  - **Phase 1**: Basic RC with inline operations
-  - **Phase 2**: Move semantics + last-use analysis
-  - **Phase 3**: Escape analysis for non-escaping variables
-- Stack trace tracking (push_call_stack/pop_call_stack)
-- See `docs/RC_IMPLEMENTATION.md` for RC details
-
-### Runtime (src/runtime/)
-Rust-based runtime compiled as static library (`libwadescript_runtime.a`).
-
-- **Lists**: Dynamic arrays with automatic resizing
-- **Dicts**: Hash tables with separate chaining
-- **Strings**: UTF-8 string operations (upper, lower, contains, char_at)
-- **Error Handling**: Colored errors with stack traces
-
-See `docs/DATA_STRUCTURES.md` for implementation details.
-
-## Type System
-
-**Primitives**: `int` (i64), `float` (f64), `str` (C string), `bool`, `void`
-**Collections**: `list[T]`, `dict[K, V]`, `array[T, N]`
-**Custom**: Classes
-
-**Type Compatibility:**
-- Float accepts Int (automatic promotion)
-- Collections require exact type matching
-
-## Development Workflow
+## Development Workflows
 
 ### Adding a New Feature
 
-1. **Update AST** (ast.rs): Add Statement/Expression variants
-2. **Update Lexer** (lexer.rs): Add tokens if needed
-3. **Update Parser** (parser.rs): Parse new syntax
-4. **Update Type Checker** (typechecker.rs): Add type checking
-5. **Update Code Generator** (codegen.rs): Generate LLVM IR
-6. **Update Runtime** (src/runtime/*.rs): Add runtime functions if needed
-7. **Update Runtime Symbols** (runtime_symbols.rs): Register new runtime functions (see below)
-8. **Test**: Create test in `tests/` directory
-9. **Build and verify**: `make test`
-
-See `docs/TESTING.md` for testing guidelines.
+1. **AST** (ast.rs): Add Statement/Expression variants
+2. **Lexer** (lexer.rs): Add tokens if needed
+3. **Parser** (parser.rs): Parse new syntax
+4. **Type Checker** (typechecker.rs): Add type rules
+5. **Code Generator** (codegen.rs): Generate LLVM IR
+6. **Runtime** (src/runtime/*.rs): Add runtime functions if needed
+7. **Runtime Symbols** (runtime_symbols.rs): Register new runtime functions for JIT
+8. **Language Defs** (language_defs.rs): Update keywords/builtins for LSP
+9. **Tests**: Create `tests/test_*.ws` and Rust tests
+10. **Docs**: Document in `docs/` directory
+11. **Verify**: `make test test-rust`
 
 ### Adding a New Runtime Function
 
-When adding a new runtime function that needs to be available in both compiled mode and REPL:
-
-1. **Implement the function** in `src/runtime/*.rs` with `#[no_mangle] pub extern "C"`
-2. **Declare it in codegen.rs** (in the appropriate `declare_*_functions` method)
-3. **Register it in runtime_symbols.rs**:
-   - Add the import at the top of `get_runtime_symbols()`
-   - Add a `RuntimeSymbol { name: "func_name", addr: func_name as usize }` entry
-
-This ensures the function is automatically available to the JIT for REPL usage. The centralized registry prevents JIT from falling out of sync with the compiler.
+1. Implement in `src/runtime/*.rs` with `#[no_mangle] pub extern "C"`
+2. Declare in codegen.rs (in the appropriate `declare_*_functions` method)
+3. Register in runtime_symbols.rs:
+   - Import at top of `get_runtime_symbols()`
+   - Add `RuntimeSymbol { name: "func_name", addr: func_name as usize }`
 
 ### Updating LSP Language Definitions
 
-When adding new keywords, types, or built-in functions, update `src/language_defs.rs`:
+Update `src/language_defs.rs` when adding keywords, types, or built-ins:
+- `get_keywords()` - must match lexer.rs
+- `get_type_keywords()` - must match lexer.rs type tokens
+- `get_builtin_functions()` - must match typechecker.rs
+- `get_list_methods()` / `get_string_methods()`
+- `get_stdlib_modules()` - must match std/*.ws files
 
-1. **Keywords**: Add to `get_keywords()` - must match lexer.rs
-2. **Type keywords**: Add to `get_type_keywords()` - must match lexer.rs type tokens
-3. **Built-in functions**: Add to `get_builtin_functions()` - must match typechecker.rs registrations
-4. **List/String methods**: Add to `get_list_methods()` or `get_string_methods()`
-5. **Standard library modules**: Add to `get_stdlib_modules()` - must match std/*.ws files
+Also update `editors/vscode/syntaxes/wadescript.tmLanguage.json` if new syntax is added.
 
-This ensures the LSP provides accurate completions and hover info for new language features.
+### Test Structure
 
-### Testing
+- Regular tests: `tests/test_*.ws` - use `assert` statements, exit 0 on pass
+- Error tests: `tests/test_error_*.ws` - with `.expected` files for expected error output
+- REPL tests: `tests/test_repl.sh`
+- Rust tests: `make test-rust`
 
-```bash
-make test            # Run all tests
-make test-rust       # Run all rust tests
-./ws test            # Alternative test runner
-./ws run test.ws     # Run individual test
-```
+## Documentation Index
 
-When making changes ALWAYS run `make test test-rust` to verify no regressions!
+All feature documentation lives in `docs/`. Refer to these before implementing changes:
 
-**Test structure:**
-- Tests in `tests/test_*.ws`
-- Use `assert` statements for validation
-- Exit with 0 for pass, non-zero for fail
-- No `.expected` files needed
+| Doc | Topic |
+|-----|-------|
+| `LANGUAGE_REFERENCE.md` | Syntax quick reference with examples |
+| `QUICKSTART.md` | Getting started guide |
+| `BUILD.md` | Build system, compilation, troubleshooting |
+| `TESTING.md` | Test suite guidelines |
+| `TEST_SUITE_SUMMARY.md` | Test coverage overview |
+| `DATA_STRUCTURES.md` | Lists, dicts, arrays implementation |
+| `DATA_STRUCTURES_STATUS.md` | Implementation status tracker |
+| `LISTS.md` | List implementation details |
+| `TUPLES.md` | Tuple types, literals, unpacking, indexing |
+| `SLICES.md` | Python-style slice syntax |
+| `FOR_LOOPS.md` | For loop implementation |
+| `NAMED_ARGS.md` | Named arguments and default parameters |
+| `STR_PRINT.md` | Polymorphic str() and print() functions |
+| `EXCEPTION_SYSTEM.md` | Exception handling system |
+| `IMPORTS.md` | Module system |
+| `CLI.md` | CLI argument parsing module |
+| `HTTP.md` | HTTP client module |
+| `REPL.md` | Interactive REPL |
+| `LSP.md` | Language server for IDE integration |
+| `RC_IMPLEMENTATION.md` | Reference counting internals |
+| `RC_LOOP_HOISTING.md` | Phase 4b loop hoisting optimization |
+| `BENCHMARK_RESULTS.md` | Performance benchmarks |
+| `TODO.md` | Roadmap (sets, os module, expanded CLI) |
 
-See `docs/TESTING.md` and `docs/TEST_SUITE_SUMMARY.md` for details.
+## Key Architecture Notes
 
-### Debugging
+- **Type system**: `int` (i64), `float` (f64), `str`, `bool`, `void`, `list[T]`, `dict[K,V]`, `array[T,N]`, tuples `(T1, T2, ...)`, classes. Float accepts Int (auto-promotion).
+- **Memory management**: Automatic reference counting with 4-phase optimization (basic RC → move semantics → escape analysis → loop hoisting). ~5-8% overhead. See `docs/RC_IMPLEMENTATION.md`.
+- **Runtime**: Rust static library (`libwadescript_runtime.a`) linked into compiled executables.
+- **Standard library**: WadeScript modules in `std/` (cli.ws, http.ws, io.ws) that wrap runtime functions. Used via `import "cli"` etc.
+- **LLVM 17**: Required, handled automatically by Makefile.
+- **Every program needs**: `def main() -> int { ... return 0 }`
 
-```bash
-./ws run file.ws --emit-llvm   # Emit LLVM IR
-make check                      # Fast syntax check
-```
+## Debugging
 
-**Common issues:**
 - **Type errors**: Check error message for expected vs actual types
 - **Segfaults**: Verify pointer handling in codegen.rs
 - **Runtime errors**: Check stack trace for call history
-
-## Common Patterns
-
-### Variables and Functions
-```wadescript
-# Variables
-x: int = 42
-name: str = "Alice"
-ages: dict[str, int] = {"Alice": 25}
-
-# Functions
-def add(a: int, b: int) -> int {
-    return a + b
-}
-```
-
-### Classes
-```wadescript
-class Person {
-    name: str
-    age: int
-
-    def greet(self: Person) -> void {
-        print_str(self.name)
-    }
-}
-
-def main() -> int {
-    p: Person = Person("Alice", 25)
-    p.greet()
-    return 0
-}
-```
-
-### Control Flow
-```wadescript
-# If/elif/else
-if x > 0 {
-    print_str("positive")
-} elif x < 0 {
-    print_str("negative")
-} else {
-    print_str("zero")
-}
-
-# While loop
-while condition {
-    # body
-}
-
-# For loop
-for item in items {
-    print_int(item)
-}
-
-# For loop over string
-for char in "hello" {
-    print_str(char)
-}
-```
-
-See `docs/FOR_LOOPS.md` for for-loop implementation details.
-
-### Strings
-```wadescript
-s: str = "hello"
-len: int = s.length           # Property
-upper: str = s.upper()        # Method
-has: bool = s.contains("ell") # Method
-
-# F-strings
-msg: str = f"Name: {name}, Age: {age}"
-```
-
-### Tuples
-```wadescript
-# Tuple type and literal
-point: (int, int) = (10, 20)
-data: (str, int, bool) = ("Alice", 30, True)
-
-# Tuple indexing (compile-time indices)
-x: int = point.0
-y: int = point.1
-
-# Tuple unpacking
-a, b = point
-name, age, active = data
-```
-
-### Slices
-```wadescript
-nums: list[int] = [0, 1, 2, 3, 4, 5]
-
-# Basic slicing
-sub: list[int] = nums[1:4]     # [1, 2, 3]
-first3: list[int] = nums[:3]   # [0, 1, 2]
-last3: list[int] = nums[3:]    # [3, 4, 5]
-
-# With step
-every2: list[int] = nums[::2]  # [0, 2, 4]
-reversed: list[int] = nums[::-1]  # [5, 4, 3, 2, 1, 0]
-
-# String slicing
-s: str = "hello world"
-hello: str = s[:5]   # "hello"
-```
-
-### Named Arguments and Defaults
-```wadescript
-# Function with default parameters
-def greet(name: str = "World", excited: bool = False) -> void {
-    if excited {
-        print_str(f"Hello, {name}!")
-    } else {
-        print_str(f"Hello, {name}")
-    }
-}
-
-# Calling with named arguments
-greet()                          # Uses defaults
-greet("Alice")                   # Positional
-greet(name="Bob")                # Named
-greet(excited=True)              # Skip to later param
-greet("Charlie", excited=True)   # Mix positional and named
-```
-
-### Exception Handling
-```wadescript
-# Basic try/except
-try {
-    raise ValueError("error")
-} except ValueError {
-    print_str("caught")
-}
-
-# Multiple except clauses
-try {
-    # code
-} except ValueError as e {
-    # handle ValueError
-} except KeyError {
-    # handle KeyError
-} finally {
-    # always runs
-}
-```
-
-See `docs/EXCEPTION_SYSTEM.md` for exception system details.
-
-### Module System
-```wadescript
-import "path/to/module"
-
-# Call imported function
-Module.function()
-```
-
-See `docs/IMPORTS.md` for module system details.
-
-## Memory Management
-
-WadeScript uses automatic reference counting (RC) with three-phase optimization:
-
-- **Phase 1**: Basic RC with inline operations
-- **Phase 2**: Move semantics for returns + last-use analysis
-- **Phase 3**: Escape analysis for non-escaping variables
-
-**Performance**: ~5-8% overhead (comparable to Swift's ARC)
-**Zero-cost**: Non-escaping local variables have NO RC overhead
-
-See `docs/RC_IMPLEMENTATION.md` and `docs/BENCHMARK_RESULTS.md` for details.
-
-## Important Notes
-
-1. **Use `./ws` tool** for building and running
-2. **Main function required**: `def main() -> int`
-3. **Runtime**: Rust static library linked with executables
-4. **LLVM 17**: Handled automatically by Makefile
-5. **Build system**: Use `make` for streamlined builds
-
-## Troubleshooting
-
-```bash
-# Build issues
-make clean-all       # Clean everything
-make rebuild         # Rebuild from scratch
-make info            # Show build configuration
-
-# Test issues
-./ws run test.ws     # Run individual test
-make test            # Run all tests
-
-# Runtime issues
-make runtime         # Rebuild runtime library
-```
-
-**Common errors:**
-- **Cargo not found**: Run `make` (auto-detects Cargo)
-- **LLVM not found**: Run `make` (auto-sets LLVM path)
-- **Linking errors**: Run `make` to rebuild runtime
-- **Type errors**: Read error message carefully
-
-See `docs/BUILD.md` for detailed troubleshooting.
-
-## Performance
-
-**Benchmark results** (see `docs/BENCHMARK_RESULTS.md`):
-- Baseline operations: <0.01s for 50K iterations
-- RC optimizations: ~70% reduction in RC operations
-- Non-escaping variables: Zero RC overhead
-- Overall: ~5-8% overhead vs non-RC baseline
-
-**Run benchmarks:**
-```bash
-./ws build benchmarks/bench_rc_performance.ws
-/usr/bin/time -p ./bench_rc_performance
-
-./ws build benchmarks/bench_phase3_escape.ws
-/usr/bin/time -p ./bench_phase3_escape
-```
-
-## References
-
-- Repository structure: See above
-- Detailed docs: See `docs/` directory
-- Example code: See `examples/` directory
-- Test suite: See `tests/` directory
-- Benchmarks: See `benchmarks/` directory
+- **LLVM IR**: `./ws run file.ws --emit-llvm`
+- **Build issues**: `make clean-all && make` or `make info` for config

@@ -264,7 +264,7 @@ fn main() {
 
     // Link with clang (preserve debug information with -g)
     let output = Command::new("clang")
-        .args(&["-g", &obj_file, runtime_lib, "-o", exe_file])
+        .args(&["-g", "-no-pie", &obj_file, runtime_lib, "-o", exe_file])
         .output()
         .expect("Failed to link object file with clang");
 

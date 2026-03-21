@@ -16,11 +16,13 @@
 - **Building**: `docs/BUILD.md` - Build system and compilation details
 - **Testing**: `docs/TESTING.md` - Test suite and writing tests
 - **Data Structures**: `docs/DATA_STRUCTURES.md` - Lists, dicts, arrays
+- **Data Structures Status**: `docs/DATA_STRUCTURES_STATUS.md` - Implementation status tracker
 - **Lists**: `docs/LISTS.md` - List implementation details
 - **For Loops**: `docs/FOR_LOOPS.md` - For loop implementation
 - **Imports**: `docs/IMPORTS.md` - Module system details
 - **Exceptions**: `docs/EXCEPTION_SYSTEM.md` - Exception handling system
 - **RC Implementation**: `docs/RC_IMPLEMENTATION.md` - Reference counting internals
+- **RC Loop Hoisting**: `docs/RC_LOOP_HOISTING.md` - Phase 4b loop hoisting optimization
 - **Benchmarks**: `docs/BENCHMARK_RESULTS.md` - Performance benchmarks and optimizations
 - **Test Summary**: `docs/TEST_SUITE_SUMMARY.md` - Test coverage overview
 - **CLI Module**: `docs/CLI.md` - Command-line argument parsing
@@ -30,6 +32,8 @@
 - **Slices**: `docs/SLICES.md` - Python-style slice syntax for lists and strings
 - **Named Arguments**: `docs/NAMED_ARGS.md` - Named arguments and default parameters
 - **REPL**: `docs/REPL.md` - Interactive Read-Eval-Print Loop
+- **str() and print()**: `docs/STR_PRINT.md` - Polymorphic str() and print() built-in functions
+- **Roadmap**: `docs/TODO.md` - Future work (sets, os module, expanded CLI)
 
 ## Project Overview
 
@@ -51,8 +55,12 @@ WadeScript is a statically-typed programming language that compiles to native co
 - Increment/decrement operators (++, --)
 - Assert statements for testing
 - Reference counting with automatic memory management
-- Built-in functions (print_int, print_float, print_str, print_bool, range)
+- Polymorphic `str()` and `print()` built-in functions (work with all types)
+- Legacy typed print functions (print_int, print_float, print_str, print_bool)
+- Built-in `range()` function for iteration
+- Standard library modules (cli, http, io) in `std/` directory
 - Interactive REPL with JIT compilation
+- VS Code extension with syntax highlighting and LSP integration
 
 ## Quick Reference
 
@@ -72,6 +80,16 @@ make examples        # Compile all examples
 
 # IDE Integration
 ./ws lsp             # Start language server for IDE integration
+```
+
+**`./ws` utility commands:**
+```bash
+./ws run file.ws [args]      # Compile and run (with optional args)
+./ws build file.ws           # Compile to executable (.o)
+./ws build file.ws -o name   # Compile with custom output name
+./ws test                    # Run all tests in tests/ directory
+./ws repl                    # Start interactive REPL
+./ws lsp                     # Start language server
 ```
 
 See `docs/BUILD.md` for complete build documentation.
@@ -109,10 +127,19 @@ wadescript/
 │       ├── cli.rs        # CLI argument parsing
 │       ├── http.rs       # HTTP client
 │       └── exceptions.rs # Exception handling
-├── docs/                 # All detailed documentation
-├── examples/             # Example WadeScript programs
-├── tests/                # Test suite
-└── benchmarks/           # Performance benchmarks
+├── std/                  # Standard library modules (.ws)
+│   ├── cli.ws            # CLI argument parsing
+│   ├── http.ws           # HTTP client
+│   └── io.ws             # File I/O operations
+├── docs/                 # All detailed documentation (22 files)
+├── examples/             # Example WadeScript programs (64 files)
+├── tests/                # Test suite (44 test files)
+├── benchmarks/           # Performance benchmarks (9 files)
+└── editors/
+    └── vscode/           # VS Code extension
+        ├── src/extension.ts          # Extension source
+        ├── syntaxes/wadescript.tmLanguage.json  # Syntax highlighting
+        └── wadescript-0.1.0.vsix     # Built extension package
 ```
 
 ### Compilation Pipeline
@@ -146,8 +173,9 @@ See `docs/BUILD.md` for detailed compilation process.
   - **Phase 1**: Basic RC with inline operations
   - **Phase 2**: Move semantics + last-use analysis
   - **Phase 3**: Escape analysis for non-escaping variables
+  - **Phase 4b**: Loop hoisting for loop-invariant RC operations
 - Stack trace tracking (push_call_stack/pop_call_stack)
-- See `docs/RC_IMPLEMENTATION.md` for RC details
+- See `docs/RC_IMPLEMENTATION.md` and `docs/RC_LOOP_HOISTING.md` for RC details
 
 ### Runtime (src/runtime/)
 Rust-based runtime compiled as static library (`libwadescript_runtime.a`).
@@ -156,13 +184,26 @@ Rust-based runtime compiled as static library (`libwadescript_runtime.a`).
 - **Dicts**: Hash tables with separate chaining
 - **Strings**: UTF-8 string operations (upper, lower, contains, char_at)
 - **Error Handling**: Colored errors with stack traces
+- **File I/O**: File read/write/append operations
+- **CLI**: Command-line argument access
+- **HTTP**: HTTP GET/POST client with headers support
 
 See `docs/DATA_STRUCTURES.md` for implementation details.
+
+### Standard Library (std/)
+WadeScript standard library modules written in WadeScript, wrapping runtime functions:
+
+- **cli.ws**: `cli.get_args()`, `cli.get_arg(n)`, `cli.arg_count()` - CLI argument access
+- **http.ws**: `http.get(url)`, `http.post(url, body)` - HTTP requests with `HttpResponse` class
+- **io.ws**: `io.open(path, mode)`, `io.read(handle)`, `io.write(handle, data)`, `io.close(handle)` - File I/O
+
+Usage: `import "cli"` then call `cli.get_args()` etc.
 
 ## Type System
 
 **Primitives**: `int` (i64), `float` (f64), `str` (C string), `bool`, `void`
 **Collections**: `list[T]`, `dict[K, V]`, `array[T, N]`
+**Tuples**: `(T1, T2, ...)` - heterogeneous fixed-size
 **Custom**: Classes
 
 **Type Compatibility:**
@@ -221,10 +262,11 @@ make test-rust       # Run all rust tests
 When making changes ALWAYS run `make test test-rust` to verify no regressions!
 
 **Test structure:**
-- Tests in `tests/test_*.ws`
+- Tests in `tests/test_*.ws` (44 test files total)
 - Use `assert` statements for validation
 - Exit with 0 for pass, non-zero for fail
-- No `.expected` files needed
+- Error tests in `tests/test_error_*.ws` with `.expected` files for expected error output
+- REPL tests in `tests/test_repl.sh`
 
 See `docs/TESTING.md` and `docs/TEST_SUITE_SUMMARY.md` for details.
 
@@ -313,6 +355,22 @@ has: bool = s.contains("ell") # Method
 msg: str = f"Name: {name}, Age: {age}"
 ```
 
+### str() and print()
+```wadescript
+# Polymorphic str() - works with any type
+s: str = str(42)             # "42"
+s: str = str(3.14)           # "3.14"
+s: str = str(True)           # "True"
+s: str = str([1, 2, 3])     # "[1, 2, 3]"
+
+# Polymorphic print() - prints any type
+print(42)                    # Prints: 42
+print("hello")               # Prints: hello
+print([1, 2, 3])            # Prints: [1, 2, 3]
+```
+
+See `docs/STR_PRINT.md` for details.
+
 ### Tuples
 ```wadescript
 # Tuple type and literal
@@ -398,13 +456,52 @@ Module.function()
 
 See `docs/IMPORTS.md` for module system details.
 
+### Standard Library Usage
+```wadescript
+# CLI arguments
+import "cli"
+args: list[str] = cli.get_args()
+
+# HTTP requests
+import "http"
+response: HttpResponse = http.get("https://example.com")
+print_int(response.status)
+print_str(response.body)
+
+# File I/O
+import "io"
+handle: int = io.open("file.txt", "r")
+content: str = io.read(handle)
+io.close(handle)
+```
+
+See `docs/CLI.md`, `docs/HTTP.md` for details.
+
+## IDE Integration
+
+### VS Code Extension
+A full VS Code extension is available in `editors/vscode/`:
+- Syntax highlighting via TextMate grammar
+- LSP integration for diagnostics, completions, and hover info
+- Install: `code --install-extension editors/vscode/wadescript-0.1.0.vsix`
+- Or start the language server manually: `./ws lsp`
+
+See `docs/LSP.md` for language server details.
+
+### Adding IDE Support for New Features
+When adding language features that should be reflected in IDE tooling:
+1. Update `src/language_defs.rs` (keywords, types, built-ins)
+2. Update `editors/vscode/syntaxes/wadescript.tmLanguage.json` if new syntax is added
+3. Rebuild the VS Code extension if grammar changes
+
 ## Memory Management
 
-WadeScript uses automatic reference counting (RC) with three-phase optimization:
+WadeScript uses automatic reference counting (RC) with multi-phase optimization:
 
 - **Phase 1**: Basic RC with inline operations
 - **Phase 2**: Move semantics for returns + last-use analysis
 - **Phase 3**: Escape analysis for non-escaping variables
+- **Phase 4b**: Loop hoisting for loop-invariant RC operations (O(n) → O(1))
 
 **Performance**: ~5-8% overhead (comparable to Swift's ARC)
 **Zero-cost**: Non-escaping local variables have NO RC overhead
@@ -460,6 +557,17 @@ See `docs/BUILD.md` for detailed troubleshooting.
 /usr/bin/time -p ./bench_phase3_escape
 ```
 
+## Key Dependencies (Cargo.toml)
+
+- **inkwell 0.5** (llvm17-0): LLVM bindings for code generation
+- **tower-lsp 0.20**: Language Server Protocol framework
+- **tokio 1.0**: Async runtime (for LSP)
+- **rustyline 14.0**: REPL line editing
+- **ureq 2.9**: HTTP client (for runtime http module)
+- **serde/serde_json**: JSON serialization (for LSP)
+- **dashmap 5.0**: Concurrent map (for LSP document store)
+- **ropey 1.0**: Rope data structure (for LSP text buffers)
+
 ## References
 
 - Repository structure: See above
@@ -467,3 +575,5 @@ See `docs/BUILD.md` for detailed troubleshooting.
 - Example code: See `examples/` directory
 - Test suite: See `tests/` directory
 - Benchmarks: See `benchmarks/` directory
+- Standard library: See `std/` directory
+- VS Code extension: See `editors/vscode/` directory

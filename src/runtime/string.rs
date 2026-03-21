@@ -442,6 +442,59 @@ mod tests {
     }
 
     #[test]
+    fn test_str_slice_basic() {
+        let s = CString::new("hello world").unwrap();
+
+        // s[0:5] -> "hello"
+        let result = str_slice(s.as_ptr() as *const u8, 0, 5, 1);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "hello");
+        }
+    }
+
+    #[test]
+    fn test_str_slice_with_step() {
+        let s = CString::new("abcdefgh").unwrap();
+
+        // s[0:8:2] -> "aceg"
+        let result = str_slice(s.as_ptr() as *const u8, 0, 8, 2);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "aceg");
+        }
+    }
+
+    #[test]
+    fn test_str_slice_negative_step() {
+        let s = CString::new("hello").unwrap();
+
+        // s[::-1] -> "olleh" (reverse) — default start/end with step -1
+        let result = str_slice(s.as_ptr() as *const u8, -1, -1, -1);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "olleh");
+        }
+    }
+
+    #[test]
+    fn test_str_slice_empty_result() {
+        let s = CString::new("hello").unwrap();
+
+        // s[3:1] with step 1 -> "" (start > end)
+        let result = str_slice(s.as_ptr() as *const u8, 3, 1, 1);
+        unsafe {
+            let cstr = CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "");
+        }
+    }
+
+    #[test]
+    fn test_str_slice_null() {
+        assert!(str_slice(ptr::null(), 0, 5, 1).is_null());
+    }
+
+    #[test]
     fn test_int_to_string() {
         unsafe {
             let result = int_to_string(42);

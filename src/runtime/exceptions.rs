@@ -157,3 +157,151 @@ pub extern "C" fn exception_raise(
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::{CStr, CString};
+
+    #[test]
+    fn test_exception_create() {
+        let exc_type = CString::new("ValueError").unwrap();
+        let message = CString::new("invalid value").unwrap();
+        let file = CString::new("test.ws").unwrap();
+
+        let exc = exception_create(
+            exc_type.as_ptr(),
+            message.as_ptr(),
+            file.as_ptr(),
+            42,
+        );
+
+        assert!(!exc.is_null());
+        unsafe {
+            let exc_ref = &*exc;
+            assert_eq!(CStr::from_ptr(exc_ref.exception_type), exc_type.as_c_str());
+            assert_eq!(CStr::from_ptr(exc_ref.message), message.as_c_str());
+            assert_eq!(CStr::from_ptr(exc_ref.file), file.as_c_str());
+            assert_eq!(exc_ref.line, 42);
+            let _ = Box::from_raw(exc);
+        }
+    }
+
+    #[test]
+    fn test_exception_get_set_current() {
+        unsafe {
+            // Clear any existing state
+            CURRENT_EXCEPTION = ptr::null_mut();
+
+            assert!(exception_get_current().is_null());
+
+            let exc_type = CString::new("Error").unwrap();
+            let message = CString::new("test").unwrap();
+            let file = CString::new("test.ws").unwrap();
+            let exc = exception_create(exc_type.as_ptr(), message.as_ptr(), file.as_ptr(), 1);
+
+            exception_set_current(exc);
+            assert!(!exception_get_current().is_null());
+            assert_eq!(exception_get_current(), exc);
+
+            // Cleanup
+            exception_clear();
+        }
+    }
+
+    #[test]
+    fn test_exception_clear() {
+        unsafe {
+            CURRENT_EXCEPTION = ptr::null_mut();
+
+            let exc_type = CString::new("Error").unwrap();
+            let message = CString::new("msg").unwrap();
+            let file = CString::new("f.ws").unwrap();
+            let exc = exception_create(exc_type.as_ptr(), message.as_ptr(), file.as_ptr(), 1);
+
+            exception_set_current(exc);
+            assert!(!exception_get_current().is_null());
+
+            exception_clear();
+            assert!(exception_get_current().is_null());
+
+            // Double clear should be safe
+            exception_clear();
+            assert!(exception_get_current().is_null());
+        }
+    }
+
+    #[test]
+    fn test_exception_get_type_and_message() {
+        let exc_type = CString::new("TypeError").unwrap();
+        let message = CString::new("expected int, got str").unwrap();
+        let file = CString::new("test.ws").unwrap();
+
+        let exc = exception_create(exc_type.as_ptr(), message.as_ptr(), file.as_ptr(), 10);
+
+        let got_type = exception_get_type(exc);
+        let got_msg = exception_get_message(exc);
+
+        unsafe {
+            assert_eq!(CStr::from_ptr(got_type), exc_type.as_c_str());
+            assert_eq!(CStr::from_ptr(got_msg), message.as_c_str());
+            let _ = Box::from_raw(exc);
+        }
+    }
+
+    #[test]
+    fn test_exception_get_type_null() {
+        assert!(exception_get_type(ptr::null()).is_null());
+        assert!(exception_get_message(ptr::null()).is_null());
+    }
+
+    #[test]
+    fn test_exception_matches() {
+        let exc_type = CString::new("ValueError").unwrap();
+        let message = CString::new("bad").unwrap();
+        let file = CString::new("test.ws").unwrap();
+
+        let exc = exception_create(exc_type.as_ptr(), message.as_ptr(), file.as_ptr(), 1);
+
+        let check_match = CString::new("ValueError").unwrap();
+        let check_no_match = CString::new("TypeError").unwrap();
+
+        assert_eq!(exception_matches(exc, check_match.as_ptr()), 1);
+        assert_eq!(exception_matches(exc, check_no_match.as_ptr()), 0);
+
+        unsafe { let _ = Box::from_raw(exc); }
+    }
+
+    #[test]
+    fn test_exception_matches_null() {
+        let exc_type = CString::new("Error").unwrap();
+        let message = CString::new("msg").unwrap();
+        let file = CString::new("f.ws").unwrap();
+        let exc = exception_create(exc_type.as_ptr(), message.as_ptr(), file.as_ptr(), 1);
+
+        assert_eq!(exception_matches(ptr::null(), exc_type.as_ptr()), 0);
+        assert_eq!(exception_matches(exc, ptr::null()), 0);
+        assert_eq!(exception_matches(ptr::null(), ptr::null()), 0);
+
+        unsafe { let _ = Box::from_raw(exc); }
+    }
+
+    #[test]
+    fn test_exception_push_pop_handler() {
+        unsafe {
+            (*std::ptr::addr_of_mut!(EXCEPTION_HANDLERS)).clear();
+
+            let mut buf = JmpBuf { _private: [0u8; 200] };
+            let buf_ptr = &mut buf as *mut JmpBuf;
+
+            exception_push_handler(buf_ptr);
+            assert_eq!((*std::ptr::addr_of!(EXCEPTION_HANDLERS)).len(), 1);
+
+            exception_pop_handler();
+            assert_eq!((*std::ptr::addr_of!(EXCEPTION_HANDLERS)).len(), 0);
+
+            // Pop on empty should not panic
+            exception_pop_handler();
+        }
+    }
+}

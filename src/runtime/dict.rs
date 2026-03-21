@@ -554,6 +554,74 @@ mod tests {
     }
 
     #[test]
+    fn test_dict_length() {
+        let dict = dict_create();
+
+        // Empty dict
+        assert_eq!(dict_length(dict), 0);
+
+        let k1 = CString::new("a").unwrap();
+        let k2 = CString::new("b").unwrap();
+        let k3 = CString::new("c").unwrap();
+
+        dict_set(dict, k1.as_ptr() as *const u8, 1);
+        assert_eq!(dict_length(dict), 1);
+
+        dict_set(dict, k2.as_ptr() as *const u8, 2);
+        dict_set(dict, k3.as_ptr() as *const u8, 3);
+        assert_eq!(dict_length(dict), 3);
+
+        // Update existing key should not change length
+        dict_set(dict, k1.as_ptr() as *const u8, 99);
+        assert_eq!(dict_length(dict), 3);
+    }
+
+    #[test]
+    fn test_dict_length_null() {
+        assert_eq!(dict_length(std::ptr::null()), 0);
+    }
+
+    #[test]
+    fn test_dict_get_keys() {
+        let dict = dict_create();
+
+        let k1 = CString::new("alpha").unwrap();
+        let k2 = CString::new("beta").unwrap();
+        let k3 = CString::new("gamma").unwrap();
+
+        dict_set(dict, k1.as_ptr() as *const u8, 1);
+        dict_set(dict, k2.as_ptr() as *const u8, 2);
+        dict_set(dict, k3.as_ptr() as *const u8, 3);
+
+        let keys_list = dict_get_keys(dict);
+        unsafe {
+            assert!(!keys_list.is_null());
+            assert_eq!((*keys_list).length, 3);
+
+            // Collect all keys from the list
+            let mut keys: Vec<String> = Vec::new();
+            for i in 0..3 {
+                let key_ptr = super::list::list_get_i64(keys_list, i) as *const u8;
+                let key_str = CStr::from_ptr(key_ptr as *const i8).to_str().unwrap().to_string();
+                keys.push(key_str);
+            }
+
+            keys.sort();
+            assert_eq!(keys, vec!["alpha", "beta", "gamma"]);
+        }
+    }
+
+    #[test]
+    fn test_dict_get_keys_empty() {
+        let dict = dict_create();
+        let keys_list = dict_get_keys(dict);
+        unsafe {
+            assert!(!keys_list.is_null());
+            assert_eq!((*keys_list).length, 0);
+        }
+    }
+
+    #[test]
     fn test_dict_to_string_empty() {
         let dict = dict_create();
         let result = dict_to_string(dict);

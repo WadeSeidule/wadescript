@@ -718,6 +718,101 @@ mod tests {
         }
     }
 
+    // Slice tests
+
+    #[test]
+    fn test_list_slice_basic() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        for i in 0..5 {
+            list_push_i64(list_ptr, i * 10); // [0, 10, 20, 30, 40]
+        }
+
+        // slice [1:4] -> [10, 20, 30]
+        let sliced = list_slice_i64(list_ptr, 1, 4, 1);
+        unsafe {
+            assert_eq!((*sliced).length, 3);
+            assert_eq!(list_get_i64(sliced, 0), 10);
+            assert_eq!(list_get_i64(sliced, 1), 20);
+            assert_eq!(list_get_i64(sliced, 2), 30);
+        }
+    }
+
+    #[test]
+    fn test_list_slice_with_step() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        for i in 0..6 {
+            list_push_i64(list_ptr, i); // [0, 1, 2, 3, 4, 5]
+        }
+
+        // slice [0:6:2] -> [0, 2, 4]
+        let sliced = list_slice_i64(list_ptr, 0, 6, 2);
+        unsafe {
+            assert_eq!((*sliced).length, 3);
+            assert_eq!(list_get_i64(sliced, 0), 0);
+            assert_eq!(list_get_i64(sliced, 1), 2);
+            assert_eq!(list_get_i64(sliced, 2), 4);
+        }
+    }
+
+    #[test]
+    fn test_list_slice_negative_step() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        for i in 0..5 {
+            list_push_i64(list_ptr, i); // [0, 1, 2, 3, 4]
+        }
+
+        // slice [::-1] -> [4, 3, 2, 1, 0] (reverse)
+        let sliced = list_slice_i64(list_ptr, -1, -1, -1);
+        unsafe {
+            assert_eq!((*sliced).length, 5);
+            assert_eq!(list_get_i64(sliced, 0), 4);
+            assert_eq!(list_get_i64(sliced, 1), 3);
+            assert_eq!(list_get_i64(sliced, 2), 2);
+            assert_eq!(list_get_i64(sliced, 3), 1);
+            assert_eq!(list_get_i64(sliced, 4), 0);
+        }
+    }
+
+    #[test]
+    fn test_list_slice_empty_result() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        list_push_i64(list_ptr, 1);
+        list_push_i64(list_ptr, 2);
+
+        // slice [2:1] with step 1 -> empty
+        let sliced = list_slice_i64(list_ptr, 2, 1, 1);
+        unsafe {
+            assert_eq!((*sliced).length, 0);
+        }
+    }
+
+    #[test]
+    fn test_list_slice_full_copy() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        for i in 0..3 {
+            list_push_i64(list_ptr, i + 1); // [1, 2, 3]
+        }
+
+        // slice [:] -> [1, 2, 3]  (default start=-1, end=-1, step=1)
+        let sliced = list_slice_i64(list_ptr, -1, -1, 1);
+        unsafe {
+            assert_eq!((*sliced).length, 3);
+            assert_eq!(list_get_i64(sliced, 0), 1);
+            assert_eq!(list_get_i64(sliced, 1), 2);
+            assert_eq!(list_get_i64(sliced, 2), 3);
+        }
+    }
+
     // Float list tests
 
     fn create_test_float_list() -> Box<FloatList> {

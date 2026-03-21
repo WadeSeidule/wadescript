@@ -2,285 +2,53 @@
 
 ## Overview
 
-Created a comprehensive test suite for WadeScript to prevent regressions and ensure all language features work correctly.
+WadeScript has a comprehensive test suite with 43 test files covering all language features.
 
-## What Was Built
+## Test Infrastructure
 
-### Test Infrastructure
-- **Test Runner**: `run_tests.sh` - Automated test execution and validation
-- **7 Test Files**: Covering all major language features
-- **7 Expected Output Files**: Reference outputs for validation
-- **Documentation**: TESTING.md with complete guide
+- **Test Runner**: `./ws test` or `make test` — compiles and runs all `tests/test_*.ws` files
+- **Error Tests**: `make test-errors` — tests with `.expected` files for error message validation
+- **Rust Tests**: `make test-rust` — unit tests for runtime functions
+- **REPL Tests**: `tests/test_repl.sh` — interactive REPL behavior
 
-### Test Coverage
+## Test Coverage
 
-| Category | Tests | Features Covered |
-|----------|-------|------------------|
-| Basic Types | 1 | int, float, bool, str, all arithmetic |
-| Functions | 1 | definitions, calls, recursion |
-| Control Flow | 1 | if/elif/else, while loops |
-| For Loops | 1 | list iteration, range() |
-| Lists | 1 | creation, methods, indexing |
-| Comparisons | 1 | all operators, logical ops |
-| Integration | 1 | multiple features together |
-| **Total** | **7** | **100% of implemented features** |
+| Category | Test Files | Features Covered |
+|----------|-----------|------------------|
+| Core Types | `test_basic_types.ws` | int, float, bool, str, arithmetic |
+| Functions | `test_functions.ws` | definitions, calls, recursion |
+| Control Flow | `test_control_flow.ws`, `test_break_continue.ws` | if/elif/else, while, break/continue |
+| For Loops | `test_for_loops.ws` | list iteration, range(), string iteration |
+| Lists | `test_lists.ws`, `test_list_float.ws`, `test_list_str.ws` | list[int], list[float], list[str], methods, slicing |
+| Arrays | `test_arrays.ws` | fixed-size arrays, indexing, assignment |
+| Dictionaries | `test_dictionaries.ws` | creation, access, iteration |
+| Tuples | `test_tuples.ws` | literals, indexing, unpacking |
+| Slices | `test_slices.ws` | list and string slicing |
+| Strings | `test_string_features.ws`, `test_str_print.ws` | methods, str(), print() |
+| Classes | `test_class_str.ws` | fields, methods, str() conversion |
+| Exceptions | `test_exc_simple.ws`, `test_exc_multiple.ws`, `test_exc_finally.ws`, `test_exc_try_except_finally.ws`, `test_exceptions_basic.ws` | try/except/finally, raise, multiple handlers |
+| Named Args | `test_named_args.ws` | default parameters, named arguments |
+| Operators | `test_comparisons.ws`, `test_compound_assign.ws`, `test_incr_decr.ws` | comparisons, +=/-=, ++/-- |
+| Imports | `test_imports.ws` | module system |
+| Standard Library | `test_cli_basic.ws`, `test_http.ws`, `test_io.ws` | cli, http, io modules |
+| RC Optimization | `test_rc_basic.ws`, `test_rc_last_use.ws`, `test_rc_escape_analysis.ws`, `test_rc_move_optimization.ws`, `test_rc_loop_hoisting.ws`, `test_rc_phase4_pure.ws`, `test_rc_leak.ws` | All 4 RC optimization phases |
+| Error Messages | `test_error_dict_key.ws`, `test_error_line_numbers.ws`, `test_error_list_set.ws`, `test_error_stack_trace.ws` | Error output validation |
+| Other | `test_assert.ws`, `test_optional.ws`, `test_decorator_parse.ws`, `test_integration.ws` | assert, optional types, decorators |
+| **Total** | **43 files** | **All implemented features** |
 
-### Lines of Test Code
-- **test_basic_types.ws**: 27 lines
-- **test_functions.ws**: 30 lines
-- **test_control_flow.ws**: 46 lines
-- **test_for_loops.ws**: 39 lines
-- **test_lists.ws**: 48 lines
-- **test_comparisons.ws**: 31 lines
-- **test_integration.ws**: 55 lines
-- **Total**: ~275 lines of test code
-
-## How It Works
-
-1. **Compile**: Each test is compiled with the WadeScript compiler
-2. **Execute**: The compiled binary is run
-3. **Validate**: Output is compared against expected results
-4. **Report**: Pass/fail status with colored output
+## Running Tests
 
 ```bash
-$ ./run_tests.sh
-==================================
-WadeScript Test Suite
-==================================
-
-Running: test_basic_types
-PASS
-
-Running: test_comparisons
-PASS
-
-...
-
-==================================
-Test Results
-==================================
-Total:  7
-Passed: 7
-Failed: 0
-
-All tests passed!
+make test            # Run all WadeScript tests
+make test-rust       # Run all Rust unit tests
+make test-errors     # Run error message tests
+./ws test            # Alternative test runner
+./ws run tests/test_lists.ws  # Run individual test
 ```
 
-## Key Features
+## Test Structure
 
-### Automated Discovery
-- Tests are automatically found by pattern `test_*.ws`
-- No need to register tests manually
-- Just add files and they're included
-
-### Clear Failure Reporting
-When a test fails, you see exactly what went wrong:
-```
-FAIL: Output mismatch
-Expected:
-42
-
-Actual:
-43
-```
-
-### Fast Execution
-- All 7 tests run in ~2 seconds
-- Fast feedback loop for development
-- Suitable for CI/CD pipelines
-
-### Easy to Extend
-Adding a new test:
-1. Create `tests/test_feature.ws`
-2. Create `tests/test_feature.expected`
-3. Done! It will run automatically
-
-## Benefits
-
-### Regression Prevention
-- Catches breaking changes immediately
-- Safe refactoring with confidence
-- Prevents bugs from shipping
-
-### Documentation
-- Tests serve as executable examples
-- Shows correct usage of features
-- Demonstrates expected behavior
-
-### Development Workflow
-```bash
-# Make changes
-vim src/codegen.rs
-
-# Rebuild
-cargo build --release
-
-# Test
-./run_tests.sh
-
-# If tests pass, commit!
-git commit -m "Add feature"
-```
-
-## Test Examples
-
-### Basic Types
-```wadescript
-a: int = 10
-b: int = 5
-print_int(a + b)    # 15
-print_int(a * b)    # 50
-```
-
-### Lists and For Loops
-```wadescript
-numbers: list[int] = [1, 2, 3, 4, 5]
-sum: int = 0
-for num in numbers {
-    sum = sum + num
-}
-print_int(sum)  # 15
-```
-
-### Integration (Multiple Features)
-```wadescript
-def is_prime(n: int) -> bool {
-    # ... implementation
-}
-
-primes: list[int] = []
-for num in range(20) {
-    if is_prime(num) {
-        primes.push(num)
-    }
-}
-```
-
-## Continuous Integration Ready
-
-The test suite is designed for CI:
-- Exit code 0 on success, 1 on failure
-- Color output (can be disabled)
-- Self-contained
-- Fast execution
-
-### GitHub Actions Example
-```yaml
-- name: Test
-  run: ./run_tests.sh
-```
-
-## Statistics
-
-- **7 test files**
-- **~275 lines of test code**
-- **100% pass rate**
-- **~2 seconds execution time**
-- **All major features covered**
-
-## Feature Coverage
-
-✅ **Complete Coverage**:
-- Integers, floats, booleans, strings
-- All arithmetic operators (+, -, *, /, %)
-- All comparison operators (==, !=, <, >, <=, >=)
-- All logical operators (and, or, not)
-- Functions with parameters and return values
-- Recursive functions
-- If/elif/else statements
-- While loops
-- For loops over lists
-- range() function
-- Lists: creation, literals, methods, indexing
-- Variable scoping
-- Type checking (implicit via successful compilation)
-
-## Future Enhancements
-
-Potential additions:
-- Performance benchmarks
-- Memory leak detection
-- Fuzzing tests
-- Error handling tests
-- Edge case tests (overflow, bounds, etc.)
-- Arrays (when implemented)
-- Dictionaries (when implemented)
-- Classes (when fully implemented)
-
-## Maintenance
-
-### Updating Tests
-When language behavior changes:
-1. Update the test file if needed
-2. Update the expected output
-3. Run tests to verify
-4. Document the change
-
-### Debugging Failures
-If a test fails:
-1. Check if it's a real bug or expected behavior change
-2. For bugs: fix the code
-3. For behavior changes: update expected output
-4. Always document why tests were changed
-
-## Success Criteria Met
-
-✅ Comprehensive coverage of all features
-✅ Fast execution time (<5 seconds)
-✅ Easy to run (single command)
-✅ Easy to extend (just add files)
-✅ Clear failure reporting
-✅ CI/CD ready
-✅ Well documented
-
-## Usage
-
-### Run All Tests
-```bash
-./run_tests.sh
-```
-
-### Run Single Test
-```bash
-./target/release/wadescript tests/test_lists.ws
-./test_lists
-diff <(./test_lists) tests/test_lists.expected
-```
-
-### Add New Test
-```bash
-# 1. Create test
-cat > tests/test_feature.ws << 'EOF'
-def main() -> int {
-    print_int(42)
-    return 0
-}
-EOF
-
-# 2. Create expected output
-echo "42" > tests/test_feature.expected
-
-# 3. Run tests
-./run_tests.sh
-```
-
-## Impact
-
-The test suite provides:
-- **Confidence**: Make changes without fear
-- **Quality**: Catch bugs before users do
-- **Documentation**: Executable examples
-- **Speed**: Fast feedback loop
-- **Safety**: Regression prevention
-
-## Conclusion
-
-The WadeScript test suite is:
-- ✅ Complete for all implemented features
-- ✅ Automated and easy to run
-- ✅ Fast and reliable
-- ✅ Well documented
-- ✅ Ready for CI/CD
-- ✅ Easy to extend
-
-**All 7 tests passing!** The language is stable and production-ready for its current feature set.
+- **Regular tests**: `tests/test_*.ws` — use `assert` statements, exit 0 on pass
+- **Error tests**: `tests/test_error_*.ws` + `.expected` files — validate error messages
+- **REPL tests**: `tests/test_repl.sh` — bash script testing REPL behavior
+- **Rust unit tests**: Inline in `src/runtime/*.rs` files

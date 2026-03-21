@@ -1,196 +1,95 @@
 # WadeScript Data Structures
 
-## Current Status
+## Overview
 
-We've added foundational support for arrays, lists, and dictionaries to WadeScript! The compiler now understands the syntax and performs type checking, but full runtime implementation is still in progress.
+WadeScript supports four collection types, all statically typed:
 
-## Syntax
+| Type | Syntax | Storage | Example |
+|------|--------|---------|---------|
+| List | `list[T]` | Heap (dynamic) | `list[int] = [1, 2, 3]` |
+| Dictionary | `dict[K, V]` | Heap (hash table) | `dict[str, int] = {"a": 1}` |
+| Array | `T[N]` | Stack (fixed-size) | `int[5] = [1, 2, 3, 4, 5]` |
+| Tuple | `(T1, T2, ...)` | Stack (fixed-size) | `(int, str) = (1, "hi")` |
 
-### Type Declarations
+## Lists
+
+Dynamic, resizable arrays. Support three element types: `int`, `float`, `str`.
 
 ```wadescript
-# Fixed-size arrays
-numbers: int[5]           # Array of 5 integers
+nums: list[int] = [1, 2, 3]
+prices: list[float] = [1.5, 2.7]
+names: list[str] = ["Alice", "Bob"]
 
-# Dynamic lists
-names: list[str]          # Dynamic list of strings
-scores: list[int]         # Dynamic list of integers
+# Operations
+nums.push(4)              # Append
+last: int = nums.pop()    # Remove last
+val: int = nums[0]        # Index access
+nums[1] = 99              # Index assignment
+len: int = nums.length    # Length property
 
-# Dictionaries/hashmaps
-ages: dict[str, int]      # Dict mapping strings to ints
-config: dict[str, float]  # Dict mapping strings to floats
+# Iteration and slicing
+for n in nums { print(n) }
+sub: list[int] = nums[1:3]
 ```
 
-### Array/List Literals
+See `LISTS.md` for implementation details.
+
+## Dictionaries
+
+Hash table mapping string keys to integer values.
 
 ```wadescript
-# List literals
-numbers: list[int] = [1, 2, 3, 4, 5]
-names: list[str] = ["Alice", "Bob", "Charlie"]
-```
-
-### Dictionary Literals
-
-```wadescript
-# Dict literals
 ages: dict[str, int] = {"Alice": 30, "Bob": 25}
+
+# Operations
+age: int = ages["Alice"]        # Access
+ages["Charlie"] = 35            # Assignment
+for key in ages { print(key) }  # Iterate keys
 ```
 
-### Indexing
+Currently supports `dict[str, int]` only.
+
+## Arrays
+
+Fixed-size, stack-allocated arrays.
 
 ```wadescript
-# Access elements by index
-first: int = numbers[0]
-second: int = numbers[1]
+nums: int[5] = [10, 20, 30, 40, 50]
+vals: float[3] = [1.5, 2.5, 3.5]
 
-# Dict access
-age: int = ages["Alice"]
+# Operations
+x: int = nums[0]     # Index access
+nums[2] = 99         # Index assignment
 ```
 
-### Properties
+Arrays are allocated on the stack via LLVM's native array types and accessed via GEP instructions. No bounds checking at runtime.
+
+## Tuples
+
+Fixed-size heterogeneous collections.
 
 ```wadescript
-# Get length of arrays/lists
-len: int = numbers.length
+point: (int, int) = (10, 20)
+data: (str, int, bool) = ("Alice", 30, True)
+
+# Indexing (compile-time)
+x: int = point.0
+name: str = data.0
+
+# Unpacking
+a, b = point
 ```
 
-### Method Calls
-
-```wadescript
-# List methods (type-checked)
-numbers.push(6)           # Add element to end
-last: int = numbers.pop() # Remove and return last element
-val: int = numbers.get(2) # Get element at index
-```
-
-## What's Implemented
-
-### ✅ Fully Working
-
-1. **Type System** - Complete type support for:
-   - Fixed arrays: `int[5]`, `float[10]`
-   - Dynamic lists: `list[int]`, `list[str]`
-   - Dictionaries: `dict[str, int]`, `dict[int, float]`
-
-2. **Type Checking** - Full type safety:
-   - Array/list element type consistency
-   - Index type validation (must be int for arrays/lists)
-   - Dict key/value type checking
-   - Method signature validation
-
-3. **Parser** - Complete syntax support:
-   - Type declarations with brackets
-   - List literals: `[1, 2, 3]`
-   - Dict literals: `{"key": value}`
-   - Index access: `arr[0]`
-   - Method calls: `list.push(5)`
-   - Property access: `list.length`
-
-### ⚠️ Partially Implemented
-
-**Code Generation** - Basic LLVM type mapping exists, but runtime operations need implementation:
-- Fixed arrays map to LLVM array types
-- Lists/dicts use opaque pointer types (placeholder)
-- Actual memory allocation and operations not yet implemented
-
-## What Still Needs Implementation
-
-To make data structures fully functional at runtime, we need:
-
-1. **Runtime Memory Management**
-   - Dynamic memory allocation for lists/dicts
-   - Malloc/free wrappers or custom allocator
-   - Reference counting or garbage collection
-
-2. **List Implementation**
-   - Struct with capacity, length, and data pointer
-   - Push/pop operations with reallocation
-   - Index bounds checking
-
-3. **Dictionary Implementation**
-   - Hash table data structure
-   - Hash function for different key types
-   - Collision handling (chaining or open addressing)
-   - Get/set/delete operations
-
-4. **Array Operations**
-   - Element access code generation
-   - Bounds checking (optional)
-   - Initialization from literals
-
-## Example Code
-
-Even though runtime isn't complete, you can write and type-check code like this:
-
-```wadescript
-def process_numbers() -> int {
-    # Create a list
-    numbers: list[int] = [1, 2, 3, 4, 5]
-
-    # Access elements
-    first: int = numbers[0]
-    last: int = numbers[4]
-
-    # Get length
-    count: int = numbers.length
-
-    # Method calls
-    numbers.push(6)
-    popped: int = numbers.pop()
-
-    return first + last
-}
-
-def use_dict() -> int {
-    # Create a dictionary
-    ages: dict[str, int] = {
-        "Alice": 30,
-        "Bob": 25,
-        "Charlie": 35
-    }
-
-    # Access values
-    alice_age: int = ages["Alice"]
-
-    return alice_age
-}
-```
-
-The type checker will verify:
-- All list elements are the same type
-- Index operations use integers
-- Dict keys/values are consistent types
-- Methods are called with correct arguments
-
-## Next Steps
-
-To complete the implementation:
-
-1. **Implement List Runtime** (~500 lines)
-   - Create LLVM struct for list metadata
-   - Implement push/pop/get in LLVM IR
-   - Add bounds checking
-
-2. **Implement Dict Runtime** (~800 lines)
-   - Create hash table structure
-   - Implement hashing functions
-   - Add get/set/has operations
-
-3. **Add Array Initialization** (~200 lines)
-   - Compile array literals to LLVM arrays
-   - Generate initialization code
-
-4. **Memory Management** (~300 lines)
-   - Add malloc/free extern declarations
-   - Implement allocation helpers
-   - Add cleanup on scope exit (optional)
+See `TUPLES.md` for details.
 
 ## Design Decisions
 
-- **Python-style syntax**: `list[int]` and `dict[str, int]` feel natural
+- **Python-style syntax**: `list[int]`, `dict[str, int]` feel natural
 - **Fixed vs Dynamic**: Clear distinction between `int[5]` (stack) and `list[int]` (heap)
-- **Type safety**: All operations are statically type-checked
+- **Static typing**: All operations are type-checked at compile time
 - **Methods over functions**: `list.push()` instead of `push(list, item)`
-- **.length property**: More intuitive than `len(list)` function
+- **`.length` property**: More intuitive than `len(list)`
 
-This foundation makes it straightforward to add the runtime implementation!
+## Implementation Status
+
+See `DATA_STRUCTURES_STATUS.md` for detailed implementation status.

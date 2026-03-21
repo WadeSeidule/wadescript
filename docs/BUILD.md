@@ -90,7 +90,7 @@ Program exited with code 0
 
 ## Manual Compilation
 
-If you prefer to use the compiler directly:
+You can invoke the compiler binary directly instead of using `./ws`:
 
 ```bash
 ./target/debug/wadescript examples/hello.ws

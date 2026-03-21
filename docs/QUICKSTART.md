@@ -149,28 +149,30 @@ Check out the `examples/` directory:
 To see the generated LLVM IR:
 
 ```bash
-./target/release/wadescript examples/hello.ws --emit-llvm
+./ws run examples/hello.ws --emit-llvm
 ```
 
 ## Current Limitations
 
-- No for loops (use while instead)
-- No arrays or lists
-- No string operations beyond literals
-- Classes are parsed but not fully implemented
 - Exit codes are limited to 0-255 (return values mod 256)
+- No list comprehensions
+- No pattern matching
+- No lambdas/anonymous functions
 
-## Next Steps
+## Features
 
-Try modifying the examples or create your own WadeScript programs! The language currently supports:
-- ✅ Integer and float arithmetic
-- ✅ Boolean logic
-- ✅ Recursion
-- ✅ While loops
-- ✅ If/elif/else
-- ✅ Function calls
-- ✅ Console output with print functions
-- ✅ Type checking
-- ✅ Native code generation
+WadeScript supports:
+- Integer and float arithmetic, boolean logic
+- Functions with default parameters and named arguments
+- Control flow: if/elif/else, while, for loops, break/continue
+- Data structures: lists (int/float/str), dictionaries, tuples, fixed-size arrays
+- String operations: methods, f-strings, slicing, iteration
+- Classes with fields and methods
+- Exception handling (try/except/finally/raise)
+- Module system with imports
+- Standard library: cli, http, io modules
+- Automatic memory management (reference counting)
+- Interactive REPL with JIT compilation
+- IDE support via LSP
 
 Happy coding! 🚀

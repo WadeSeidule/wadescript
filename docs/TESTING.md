@@ -223,27 +223,7 @@ Common causes:
 
 ## Coverage Summary
 
-| Feature Area | Test File | Lines | Coverage |
-|--------------|-----------|-------|----------|
-| Basic Types | test_basic_types.ws | 27 | Complete |
-| Functions | test_functions.ws | 30 | Complete |
-| Control Flow | test_control_flow.ws | 46 | Complete |
-| For Loops | test_for_loops.ws | 39 | Complete |
-| Lists | test_lists.ws | 48 | Complete |
-| Comparisons | test_comparisons.ws | 31 | Complete |
-| **Total** | **6 files** | **221 lines** | **100%** |
-
-## Future Test Areas
-
-Consider adding tests for:
-- **Error handling**: Invalid operations, type errors
-- **Edge cases**: Integer overflow, division by zero
-- **Memory**: Large lists, many allocations
-- **Performance**: Benchmarks for key operations
-- **Arrays**: Once arrays are implemented
-- **Dictionaries**: Once dicts are implemented
-- **Classes**: Object-oriented features
-- **String operations**: String concatenation, manipulation
+The test suite has **43 test files** covering all implemented features. See `TEST_SUITE_SUMMARY.md` for the full breakdown by category.
 
 ## Test Philosophy
 
@@ -257,39 +237,11 @@ The WadeScript test suite follows these principles:
 
 ## Running Individual Tests
 
-To run a specific test manually:
-
 ```bash
-# Build compiler
-cargo build --release
-
-# Compile test
-./target/release/wadescript tests/test_lists.ws
-
-# Run test
-./test_lists
-
-# Compare output
-diff <(./test_lists) tests/test_lists.expected
+./ws run tests/test_lists.ws   # Run a single test
+make test                       # Run all tests
+make test-rust                  # Run Rust unit tests
 ```
-
-## Test Statistics
-
-Current test coverage:
-- **6 test files**
-- **221 lines of test code**
-- **100% pass rate**
-- **~2 seconds** total execution time
-
-Features tested:
-- ✅ All basic types (int, float, bool, str)
-- ✅ All operators (arithmetic, comparison, logical)
-- ✅ Functions and recursion
-- ✅ Control flow (if/elif/else, while)
-- ✅ For loops and iteration
-- ✅ Lists (creation, methods, indexing)
-- ✅ range() function
-- ✅ Print functions
 
 ## Contribution
 

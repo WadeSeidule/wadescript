@@ -1,4 +1,16 @@
+---
+description: Run the full CI-like verification pipeline (format, lint, build, test)
+user-invocable: true
+allowed-tools: Bash, Read
+---
+
 Run the full verification pipeline to check code quality and correctness. This is the equivalent of a CI check and should be run before committing or after making changes.
+
+## Current build status
+
+!`make info 2>&1 | head -20`
+
+## Steps
 
 Run these steps in order, stopping if any step fails:
 

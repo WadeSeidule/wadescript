@@ -1,6 +1,15 @@
+---
+description: Scaffold a new WadeScript test file with correct conventions
+user-invocable: true
+---
+
 Create a new WadeScript test file for: $ARGUMENTS
 
-Steps:
+## Existing test patterns
+
+!`ls tests/test_*.ws 2>/dev/null | head -15`
+
+## Steps
 
 1. Check existing tests in `tests/` to understand naming conventions and patterns
 2. Determine the test type:

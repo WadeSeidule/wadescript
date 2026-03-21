@@ -1,6 +1,17 @@
+---
+description: Review recent code changes for correctness, consistency, and missing pieces
+user-invocable: true
+allowed-tools: Bash, Read, Grep, Glob
+---
+
 Review recent code changes for correctness, consistency, and potential issues.
 
-Steps:
+## Recent changes
+
+!`git log --oneline -5 2>/dev/null`
+!`git diff --stat HEAD~1 2>/dev/null`
+
+## Steps
 
 1. Run `git diff HEAD~1` (or `git diff --staged` if uncommitted) to see what changed
 2. For each changed file, review for:

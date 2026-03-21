@@ -1,6 +1,15 @@
+---
+description: Diagnose and fix a failing WadeScript test
+user-invocable: true
+---
+
 Diagnose and fix a failing test. The test: $ARGUMENTS
 
-Steps:
+## Test infrastructure
+
+!`ls tests/test_*.ws 2>/dev/null | wc -l` test files in tests/
+
+## Steps
 
 1. Run the failing test to see the actual error:
    - For `.ws` tests: `./ws run tests/<test_file>.ws`

@@ -2,7 +2,7 @@
 
 ## Overview
 
-WadeScript has a comprehensive test suite with 43 test files covering all language features.
+WadeScript has a comprehensive test suite with 50 test files covering all language features.
 
 ## Test Infrastructure
 
@@ -28,13 +28,19 @@ WadeScript has a comprehensive test suite with 43 test files covering all langua
 | Classes | `test_class_str.ws` | fields, methods, str() conversion |
 | Exceptions | `test_exc_simple.ws`, `test_exc_multiple.ws`, `test_exc_finally.ws`, `test_exc_try_except_finally.ws`, `test_exceptions_basic.ws` | try/except/finally, raise, multiple handlers |
 | Named Args | `test_named_args.ws` | default parameters, named arguments |
-| Operators | `test_comparisons.ws`, `test_compound_assign.ws`, `test_incr_decr.ws` | comparisons, +=/-=, ++/-- |
+| Operators | `test_comparisons.ws`, `test_compound_assign.ws`, `test_incr_decr.ws`, `test_floor_division.ws` | comparisons, +=/-=, ++/--, // |
 | Imports | `test_imports.ws` | module system |
 | Standard Library | `test_cli_basic.ws`, `test_http.ws`, `test_io.ws` | cli, http, io modules |
 | RC Optimization | `test_rc_basic.ws`, `test_rc_last_use.ws`, `test_rc_escape_analysis.ws`, `test_rc_move_optimization.ws`, `test_rc_loop_hoisting.ws`, `test_rc_phase4_pure.ws`, `test_rc_leak.ws` | All 4 RC optimization phases |
 | Error Messages | `test_error_dict_key.ws`, `test_error_line_numbers.ws`, `test_error_list_set.ws`, `test_error_stack_trace.ws` | Error output validation |
+| F-Strings | `test_fstrings.ws` | Variable, expression, and type interpolation |
+| Dict Iteration | `test_dict_iteration.ws` | for-in over dict, .length property |
+| String Methods | `test_string_methods.ws` | .upper(), .lower(), .contains(), concatenation, indexing |
+| Negative Slicing | `test_negative_slicing.ws` | Reverse slicing, step slicing, string slicing |
+| Range Edge Cases | `test_range_edge_cases.ws` | range(0), range(1), nested ranges |
+| Classes | `test_classes.ws` | Fields, methods, method chaining, str()/print() |
 | Other | `test_assert.ws`, `test_optional.ws`, `test_decorator_parse.ws`, `test_integration.ws` | assert, optional types, decorators |
-| **Total** | **43 files** | **All implemented features** |
+| **Total** | **50 files** | **All implemented features** |
 
 ## Running Tests
 

@@ -223,7 +223,7 @@ Common causes:
 
 ## Coverage Summary
 
-The test suite has **43 test files** covering all implemented features. See `TEST_SUITE_SUMMARY.md` for the full breakdown by category.
+The test suite has **50 test files** covering all implemented features. See `TEST_SUITE_SUMMARY.md` for the full breakdown by category.
 
 ## Test Philosophy
 

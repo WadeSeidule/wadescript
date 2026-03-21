@@ -1785,12 +1785,25 @@ impl<'ctx> CodeGen<'ctx> {
                 };
 
                 if let Some(init_expr) = initializer {
-                    let init_value = self.compile_expression(init_expr)?;
+                    // Handle list literal assigned to array type: compile as array
+                    if let (Type::Array(ref _elem_type, _size), Expression::ListLiteral { elements }) = (type_annotation, init_expr) {
+                        let zero = self.context.i32_type().const_zero();
+                        for (i, element) in elements.iter().enumerate() {
+                            let elem_val = self.compile_expression(element)?;
+                            let idx = self.context.i32_type().const_int(i as u64, false);
+                            let elem_ptr = unsafe {
+                                self.builder.build_gep(var_type, ptr, &[zero, idx], "array_init_ptr").unwrap()
+                            };
+                            self.builder.build_store(elem_ptr, elem_val).unwrap();
+                        }
+                    } else {
+                        let init_value = self.compile_expression(init_expr)?;
 
-                    // For RC types, retain the initial value (it starts with ref_count=1 from allocation)
-                    // No need to retain here since the allocation already gives us ownership
+                        // For RC types, retain the initial value (it starts with ref_count=1 from allocation)
+                        // No need to retain here since the allocation already gives us ownership
 
-                    self.builder.build_store(ptr, init_value).unwrap();
+                        self.builder.build_store(ptr, init_value).unwrap();
+                    }
                 } else {
                     // Initialize RC types to null to prevent releasing garbage
                     if self.is_rc_type(type_annotation) {
@@ -1995,6 +2008,15 @@ impl<'ctx> CodeGen<'ctx> {
                 let struct_type = self.context.struct_type(&field_types, false);
                 self.class_types.insert(name.clone(), struct_type);
 
+                // Forward-declare constructor so methods can call ClassName(...)
+                let ctor_param_types: Vec<BasicMetadataTypeEnum> = fields
+                    .iter()
+                    .map(|f| self.get_llvm_type(&f.field_type).into())
+                    .collect();
+                let ctor_fn_type = self.context.ptr_type(AddressSpace::default()).fn_type(&ctor_param_types, false);
+                let ctor_fn = self.module.add_function(name, ctor_fn_type, None);
+                self.functions.insert(name.clone(), ctor_fn);
+
                 // Set current class context for method compilation
                 self.current_class = Some(name.clone());
 
@@ -2006,7 +2028,7 @@ impl<'ctx> CodeGen<'ctx> {
                 // Clear class context
                 self.current_class = None;
 
-                // Generate constructor function (after methods are compiled)
+                // Generate constructor function body
                 self.generate_constructor(name, fields)?;
 
                 Ok(())
@@ -3459,15 +3481,19 @@ impl<'ctx> CodeGen<'ctx> {
                     }
                 }
 
-                // Handle .length property for lists and strings
+                // Handle .length property for lists, strings, and dicts
                 if member == "length" {
                     let obj_val = self.compile_expression(object)?;
 
                     // Determine the type of object to call the right function
-                    let use_str_length = self.is_string_expression(object);
+                    let obj_type = self.get_expression_type(object);
+                    let is_str = self.is_string_expression(object);
+                    let is_dict = matches!(obj_type, Some(Type::Dict(_, _)));
 
-                    let length_fn = if use_str_length {
+                    let length_fn = if is_str {
                         self.functions.get("str_length").unwrap()
+                    } else if is_dict {
+                        self.functions.get("dict_length").unwrap()
                     } else {
                         self.functions.get("list_length").unwrap()
                     };
@@ -3674,6 +3700,19 @@ impl<'ctx> CodeGen<'ctx> {
                     None,
                 );
                 self.builder.set_current_debug_location(debug_loc);
+
+                // Check if this is string indexing
+                if self.is_string_expression(object) && idx_val.is_int_value() {
+                    let str_char_at = self.functions.get("str_char_at").unwrap();
+                    let result = self
+                        .builder
+                        .build_call(*str_char_at, &[obj_val.into(), idx_val.into()], "char_at")
+                        .unwrap()
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    return Ok(result);
+                }
 
                 // Check if this is dict access (string key) or list access (int index)
                 if idx_val.is_pointer_value() {
@@ -4044,7 +4083,22 @@ impl<'ctx> CodeGen<'ctx> {
                             .into_pointer_value();
 
                         // Format the value based on its type
-                        if expr_val.is_int_value() {
+                        if expr_val.is_int_value() && expr_val.into_int_value().get_type().get_bit_width() == 1 {
+                            // Bool (i1) - convert to "True"/"False"
+                            let bool_to_str = self.functions.get("bool_to_string").unwrap();
+                            let bool_str = self.builder
+                                .build_call(*bool_to_str, &[expr_val.into()], "bool_str")
+                                .unwrap()
+                                .try_as_basic_value()
+                                .left()
+                                .unwrap();
+                            let fmt = self.builder.build_global_string_ptr("%s", "bool_fmt").unwrap();
+                            self.builder.build_call(
+                                sprintf_fn,
+                                &[buffer.into(), fmt.as_pointer_value().into(), bool_str.into()],
+                                ""
+                            ).unwrap();
+                        } else if expr_val.is_int_value() {
                             let fmt = self.builder.build_global_string_ptr("%lld", "int_fmt").unwrap();
                             self.builder.build_call(
                                 sprintf_fn,
@@ -4182,9 +4236,15 @@ impl<'ctx> CodeGen<'ctx> {
             .map(|f| self.get_llvm_type(&f.field_type).into())
             .collect();
 
-        let fn_type = ptr_type.fn_type(&param_types, false);
-        let function = self.module.add_function(class_name, fn_type, None);
-        self.functions.insert(class_name.to_string(), function);
+        // Reuse forward-declared function, or create new one
+        let function = if let Some(&existing) = self.functions.get(class_name) {
+            existing
+        } else {
+            let fn_type = ptr_type.fn_type(&param_types, false);
+            let func = self.module.add_function(class_name, fn_type, None);
+            self.functions.insert(class_name.to_string(), func);
+            func
+        };
 
         // Create entry block
         let entry = self.context.append_basic_block(function, "entry");

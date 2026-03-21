@@ -377,7 +377,11 @@ pub extern "C" fn dict_to_string(dict: *const Dict) -> *mut u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CString;
+    use std::ffi::{CString, CStr};
+
+    extern "C" {
+        fn list_get_i64(list: *const std::ffi::c_void, index: i64) -> i64;
+    }
 
     #[test]
     fn test_dict_create() {
@@ -601,7 +605,7 @@ mod tests {
             // Collect all keys from the list
             let mut keys: Vec<String> = Vec::new();
             for i in 0..3 {
-                let key_ptr = super::list::list_get_i64(keys_list, i) as *const u8;
+                let key_ptr = list_get_i64(keys_list as *const _, i) as *const u8;
                 let key_str = CStr::from_ptr(key_ptr as *const i8).to_str().unwrap().to_string();
                 keys.push(key_str);
             }

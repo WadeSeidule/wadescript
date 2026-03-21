@@ -130,6 +130,24 @@ impl TypeChecker {
                     let init_type = if let Expression::ListLiteral { elements } = init_expr {
                         if elements.is_empty() {
                             type_annotation.clone()
+                        } else if let Type::Array(ref elem_type, size) = type_annotation {
+                            // List literal assigned to array type: validate and coerce
+                            if elements.len() != *size {
+                                return Err(format!(
+                                    "Array size mismatch: expected {} elements, got {}",
+                                    size, elements.len()
+                                ));
+                            }
+                            for (i, elem) in elements.iter().enumerate() {
+                                let et = self.check_expression(elem)?;
+                                if !self.types_compatible(elem_type, &et) {
+                                    return Err(format!(
+                                        "Array element {} type mismatch: expected {}, got {}",
+                                        i, elem_type, et
+                                    ));
+                                }
+                            }
+                            type_annotation.clone()
                         } else {
                             self.check_expression(init_expr)?
                         }
@@ -886,11 +904,11 @@ impl TypeChecker {
                 // Also handle Optional types by unwrapping and checking inner type
                 if member == "length" {
                     match &obj_type {
-                        Type::Array(_, _) | Type::List(_) | Type::Str => Ok(Type::Int),
+                        Type::Array(_, _) | Type::List(_) | Type::Dict(_, _) | Type::Str => Ok(Type::Int),
                         Type::Optional(inner) => {
                             // Allow .length on Optional if inner type supports it
                             match inner.as_ref() {
-                                Type::Array(_, _) | Type::List(_) | Type::Str => Ok(Type::Int),
+                                Type::Array(_, _) | Type::List(_) | Type::Dict(_, _) | Type::Str => Ok(Type::Int),
                                 _ => Err(format!("Type {} has no property '{}'", obj_type, member)),
                             }
                         }
@@ -1004,6 +1022,15 @@ impl TypeChecker {
                             ));
                         }
                         Ok(*elem_type)
+                    }
+                    Type::Str => {
+                        if idx_type != Type::Int {
+                            return Err(format!(
+                                "String index must be int, got {}",
+                                idx_type
+                            ));
+                        }
+                        Ok(Type::Str)
                     }
                     Type::Dict(key_type, val_type) => {
                         if !self.types_compatible(&key_type, &idx_type) {

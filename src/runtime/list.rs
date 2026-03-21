@@ -883,7 +883,95 @@ mod tests {
         }
     }
 
+    // Float list slice tests
+
+    #[test]
+    fn test_float_list_slice_basic() {
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.1);
+        list_push_f64(list_ptr, 2.2);
+        list_push_f64(list_ptr, 3.3);
+        list_push_f64(list_ptr, 4.4);
+
+        // slice [1:3] -> [2.2, 3.3]
+        let sliced = list_slice_f64(list_ptr, 1, 3, 1);
+        unsafe {
+            assert_eq!((*sliced).length, 2);
+            assert_eq!(list_get_f64(sliced, 0), 2.2);
+            assert_eq!(list_get_f64(sliced, 1), 3.3);
+        }
+    }
+
+    #[test]
+    fn test_float_list_slice_reverse() {
+        let mut list = create_test_float_list();
+        let list_ptr = &mut *list as *mut FloatList as *mut List;
+
+        list_push_f64(list_ptr, 1.0);
+        list_push_f64(list_ptr, 2.0);
+        list_push_f64(list_ptr, 3.0);
+
+        // slice [::-1] -> [3.0, 2.0, 1.0]
+        let sliced = list_slice_f64(list_ptr, -1, -1, -1);
+        unsafe {
+            assert_eq!((*sliced).length, 3);
+            assert_eq!(list_get_f64(sliced, 0), 3.0);
+            assert_eq!(list_get_f64(sliced, 1), 2.0);
+            assert_eq!(list_get_f64(sliced, 2), 1.0);
+        }
+    }
+
     // String list tests
+
+    #[test]
+    fn test_str_list_pop() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        let s1 = CString::new("first").unwrap();
+        let s2 = CString::new("second").unwrap();
+
+        list_push_str(list_ptr, s1.as_ptr() as *const u8);
+        list_push_str(list_ptr, s2.as_ptr() as *const u8);
+        assert_eq!(list.length, 2);
+
+        let popped = list_pop_str(list_ptr);
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(popped as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "second");
+        }
+        assert_eq!(list.length, 1);
+
+        let popped2 = list_pop_str(list_ptr);
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(popped2 as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "first");
+        }
+        assert_eq!(list.length, 0);
+    }
+
+    #[test]
+    fn test_str_list_set() {
+        let mut list = create_test_list();
+        let list_ptr = &mut *list as *mut List;
+
+        let s1 = CString::new("hello").unwrap();
+        let s2 = CString::new("world").unwrap();
+        let s3 = CString::new("replaced").unwrap();
+
+        list_push_str(list_ptr, s1.as_ptr() as *const u8);
+        list_push_str(list_ptr, s2.as_ptr() as *const u8);
+
+        list_set_str(list_ptr, 1, s3.as_ptr() as *const u8);
+
+        let result = list_get_str(list_ptr, 1);
+        unsafe {
+            let cstr = std::ffi::CStr::from_ptr(result as *const i8);
+            assert_eq!(cstr.to_str().unwrap(), "replaced");
+        }
+    }
 
     #[test]
     fn test_str_list_push_and_get() {

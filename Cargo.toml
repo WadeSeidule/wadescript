@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-inkwell = { version = "0.5", features = ["llvm17-0"] }
+inkwell = { version = "0.5", features = ["llvm18-0-force-dynamic"] }
 backtrace = "0.3"
 lazy_static = "1.4"
 rustyline = "14.0"
